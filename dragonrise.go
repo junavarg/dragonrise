@@ -22,7 +22,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v017 - 9 mayo 2020" 
+	versionFecha = "v018 - 9 mayo 2020" 
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
