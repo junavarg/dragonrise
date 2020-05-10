@@ -22,13 +22,25 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v018 - 9 mayo 2020" 
+	versionFecha = "v019 - 9 mayo 2020 - Integra funciones MQTT de pruebahivemq.go - sucio" 
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
 	maxSwt = 12    //número máximo de interruptores
 	maxCom = 7     //número máximo de ejes-conmutadores 
 )
+
+const (
+	urlv ="wss://mqttws.vigilanet.com:443"
+	urlh ="tcp://broker.hivemq.com:1883"
+	urlh2 ="ws://broker.hivemq.com:8000"
+	urlm="ws://test.mosquitto.org:8080"
+	urle="tcp://broker.emqx.io:1883"
+	//ClientID="50695833"
+	ClientID=""
+	basecola="casa/montejo"+ClientID
+)
+
 //definicion de tipos
 type evento struct{
 	TipoSensor byte 	`json:"type"`
@@ -50,6 +62,103 @@ var (
 	tarjeta dragonrise			// estructura de ultimo evento y estados	
 	fs *os.File  				//handle de fichero de estado
 )
+
+var (
+	broker = [...]string{ 
+		"tcp://broker.hivemq.com:1883",
+	//	"ws://test.mosquitto.org:8080", 
+	//	"tcp://mqtt.eclipse.org:1883",
+	//	"tcp://broker.emqx.io:1883",
+		"wss://mqttws.vigilanet.com:443"}
+		
+	cliente  [len(broker)]mqtt.Client
+	opcionesCliente [len(broker)]*mqtt.ClientOptions
+	numClientes  int
+)
+
+func onConnectHandler(c mqtt.Client){
+	lectorOpcionesCliente:=c.OptionsReader()
+	fmt.Print("conectado a algúno de estos servidores: ")
+	for _, v:= range lectorOpcionesCliente.Servers(){
+		fmt.Print(v) 
+		fmt.Printf(" ")
+	}
+	fmt.Printf("\n")
+	//TODO Descubrir a que server se ha conectado si se ha metido más de uno con AddBroker
+}
+
+func onConnetionLostHandler(c mqtt.Client, er error ){
+	lectorOpcionesCliente:=c.OptionsReader()
+	fmt.Println("conexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
+}
+
+func onReconnectingHandler(c mqtt.Client, co *mqtt.ClientOptions){
+	fmt.Println("¡¡ inicio reconexión ... !! ")
+}
+
+// Conecta con broker con protocolo y puyerto indicado el la url. 
+// En la URL se puede especificar el usuario y contraseña
+// TODO: Permite especificar varias URLs para diferentes servidores y protocolos para HA pero usuario contraseña han de ser el mismo. 
+func inicioConexion(urlBroker ...string){
+	if numClientes>=len(broker){
+		return 
+	} 
+	numCliente:=numClientes
+	opcionesCliente[numCliente] = mqtt.NewClientOptions()
+
+	urlMqttBroker:=""
+	usuario:=string("")
+	password:=string("") 	
+	for _, v:= range urlBroker{
+		//se aisla usuario/password de la url
+		uri, _ := url.Parse(v)
+		urlMqttBroker = fmt.Sprintf("%s://%s", uri.Scheme, uri.Host)
+		opcionesCliente[numCliente].AddBroker(urlMqttBroker)
+		//TODO controlar que si se pasan 2 o mas URL el usuario y password coinciden
+		pUsuariopassword:=uri.User
+		if pUsuariopassword != nil {
+			usuario=(*pUsuariopassword).Username()
+			password, _=(*pUsuariopassword).Password()
+		}
+		
+	}
+	opcionesCliente[numCliente].
+		SetUsername(usuario).
+		SetPassword(password).	
+		SetClientID(ClientID).
+		SetConnectTimeout(10 * time.Second).
+		SetConnectRetry(true).   //importante a TRUE en sistemas que deben estar siempre conectados, incluso en rearranque
+		SetConnectRetryInterval(30 * time.Second).
+		SetKeepAlive(30 * time.Second).
+		SetPingTimeout(5 * time.Second).
+		SetOnConnectHandler(onConnectHandler).	
+		SetConnectionLostHandler(onConnetionLostHandler).
+		SetReconnectingHandler(onReconnectingHandler).
+		SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) // No verifica certificado de l broker en tls y wss
+
+	cliente[numCliente] = mqtt.NewClient(opcionesCliente[numCliente])
+	numClientes++
+	//conexion inicial asíncrona una vez establecidos los clientes mediante función anónima
+	go func (numCliente int){
+		fmt.Println("Conexión inicial ...")
+		if token := cliente[numCliente].Connect(); token.Wait() && token.Error() != nil {
+			fmt.Println("Error de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
+		} 
+	}(numCliente)
+
+}
+
+func publicar(basecola string, carga string){
+	for i:=0; i<numClientes; i++{
+		if cliente[i].IsConnectionOpen(){
+			cliente[i].Publish(basecola, 0, false, carga)
+					fmt.Printf("%d",i)
+		} else{
+			fmt.Printf("*")
+		}
+	}
+}
+
 
 // funcion callback  handler OnConnect  Se llama en la conexion inicial y el las posteriores reconexiones
 func ch (client mqtt.Client) {
@@ -130,7 +239,8 @@ func main(){
 	var mqpub string
 	flag.StringVar(&mqpub, "mqpub", "", "URL MQTT Broker y topic de publicacion de mensajes mqttprotocol://host.dominio:puerto/base_topic")
 	pOpcionCbc := flag.Bool("cbc", false, "Check Broker Certificate. Si no se pone esta opción el certificado presentado por el MQTT broker no será comprobado")
-	
+	_=pOpcionCbc
+
 	flag.Parse() 
 	if (*pOpcionH) {
 		fmt.Println("Use: dragonrise [options] [device]")	
@@ -160,12 +270,19 @@ func main(){
 				
 		os.Exit(0)
 	}
+
+	//TODO retirar
+	/*
 	urlMqttBroker:=""
 	dragonriseEventTopic:= ""
 	usuario:=string("")
 	password:=string("") 
+	*/
 	
 	if (mqpub!="") {
+
+		inicioConexion(mqpub)
+	/*	
 		uri, _ := url.Parse(mqpub)
 		urlMqttBroker = fmt.Sprintf("%s://%s", uri.Scheme, uri.Host)
 		pUsuariopassword:=uri.User
@@ -179,6 +296,7 @@ func main(){
 		fmt.Fprintf(os.Stderr,"URL broker MQTT: %s\n", urlMqttBroker)
 		fmt.Fprintf(os.Stderr,"Usuario : contraseña --> %s : %s\n", usuario, password)
 		fmt.Fprintf(os.Stderr,"Topic Eventos(publicación): %s\n", dragonriseEventTopic)
+	*/	
 	} else{
 		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
@@ -281,9 +399,12 @@ func main(){
 	tratarEvento(false,0,0,0)
 
 	//Conexion con broker mosquitto
-	var c mqtt.Client
-	if (urlMqttBroker!=""){ 
-	
+	//var c mqtt.Client
+	if (mqpub!=""){ 
+
+	// TODO separar topicBase	en var dragonriseeventopic
+
+	/*	
 		//create a ClientOptions	
 		opts := mqtt.NewClientOptions()
 	
@@ -318,6 +439,8 @@ func main(){
 		//TODO sustituir por mensaje en stderr
 			fmt.Fprintf(os.Stderr,"Error conexion con broker MQTT:%s\n", token.Error())
 		}
+
+		*/
 	}
 
 	// 	A la escucha de eventos ....
@@ -335,17 +458,23 @@ func main(){
 		tratarEvento(true, tipoSensor, posicion ,valor)
  		
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
+	
 		if (mqpub!=""){
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
-		
+            //TODO ajustar topic correcto
+			publicar("honduras6/dragonrise_3/event", string(estado))
+
 			// Publish will publish a message with the specified QoS and content
 			// to the specified topic.
 			// Returns a token to track delivery of the message to the broker
 			// Publish(topic string, qos byte, retained bool, payload interface{}) Token
-
+		/*
 			// Se pone el flag de "retained" del ultimo mensaje para que al conectar el subcriptor reciba el estado actual
 			token := c.Publish(dragonriseEventTopic, 0, true, string(estado))
 			token.Wait()
+		*/	
+
 		}
+		
 	}
 }
