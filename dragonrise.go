@@ -22,7 +22,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v019 - 9 mayo 2020 - Integra funciones MQTT de pruebahivemq.go - sucio" 
+	versionFecha = "v020 - 10 mayo 2020 - Integra funciones MQTT de pruebahivemq.go - sucio" 
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -37,8 +37,7 @@ const (
 	urlh2 ="ws://broker.hivemq.com:8000"
 	urlm="ws://test.mosquitto.org:8080"
 	urle="tcp://broker.emqx.io:1883"
-	ClientID=""
-	//basecola="casa/montejo"+ClientID
+	sufijoFinalTopic="event"
 )
 
 //definicion de tipos
@@ -74,6 +73,8 @@ var (
 		
 	cliente  [len(broker)]mqtt.Client
 	opcionesCliente [len(broker)]*mqtt.ClientOptions
+	// esta condición es para todos los clientes
+	verificarCertificadoBroker = false;
 	numClientes  int
 )
 
@@ -121,12 +122,26 @@ func inicioConexion(urlBroker ...string){
 			usuario=(*pUsuariopassword).Username()
 			password, _=(*pUsuariopassword).Password()
 		}
-		
 	}
+
+		var clientID string	
+		// se pone la primera mac address como clientID
+		// se obtienen todas las MACs del dispositivo
+		macs, err:=getMacAddr() 
+		
+		if err == nil {
+			//TODO quitar
+			//panic(err)
+			
+			//Se pone como ClientID la primera MAC seguido del fichero de dispositivo. No pueden conectarse al broker dos cliente con mismo ClientID
+			//TODO Verificar que longitud ClientUD no supera max del estandar MQTT  a client id must be no longer than 23 characters.
+			clientID=(macs[0]+"-"+ filepath.Base(flag.Arg(0))) 	
+		}
+		
 	opcionesCliente[numCliente].
 		SetUsername(usuario).
 		SetPassword(password).	
-		SetClientID(ClientID).
+		SetClientID(clientID).
 		SetConnectTimeout(10 * time.Second).
 		SetConnectRetry(true).   //importante a TRUE en sistemas que deben estar siempre conectados, incluso en rearranque
 		SetConnectRetryInterval(30 * time.Second).
@@ -134,8 +149,15 @@ func inicioConexion(urlBroker ...string){
 		SetPingTimeout(5 * time.Second).
 		SetOnConnectHandler(onConnectHandler).	
 		SetConnectionLostHandler(onConnetionLostHandler).
-		SetReconnectingHandler(onReconnectingHandler).
-		SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) // No verifica certificado de l broker en tls y wss
+		SetReconnectingHandler(onReconnectingHandler)
+
+		// No verifica certificado de l broker en tls y wss
+		// Salvo que se especifique opcion -cbc, se ajusta la configuracion TLS para que no se verifique el certificado que presente el broker
+		if verificarCertificadoBroker == false {
+			opcionesCliente[numCliente].SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
+		}
+	
+
 
 	cliente[numCliente] = mqtt.NewClient(opcionesCliente[numCliente])
 	numClientes++
@@ -146,28 +168,39 @@ func inicioConexion(urlBroker ...string){
 			fmt.Println("Error de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
 		} 
 	}(numCliente)
-
 }
 
 func publicar(basecola string, carga string){
 	for i:=0; i<numClientes; i++{
 		if cliente[i].IsConnectionOpen(){
-			cliente[i].Publish(basecola, 0, false, carga)
-					fmt.Printf("%d",i)
+			cliente[i].Publish(basecola, 0, true, carga) // se publica con qos=0 y retention=true
 		} else{
 			fmt.Printf("*")
 		}
 	}
 }
 
-// TODO usar o eliminar
+/*
+devuelve topic completo de publicacion formado por los siguientes elementos separados por "/"
+	baseTopic que está el la url que se pasa en mqpub, 
+	el fichero de dispositivo, que se pasa en device
+	el sufijo final 
+*/	
+func devuelveTopic(mqpub string, device string)(topic string) {
+	uri, _ := url.Parse(mqpub)
+	baseTopic:=filepath.Base(uri.Path)
+	deviceFile:=filepath.Base(device)
+	topic=fmt.Sprintf("%s/%s/%s", baseTopic, deviceFile, sufijoFinalTopic)
+	return topic
+}
+
 func getMacAddr() ([]string, error) {
     ifas, err := net.Interfaces()
     if err != nil {
         return nil, err
     }
 	// fmt.Println(ifas)   //para depuracion
-	// llena un arrau de strings con cada interfaz que tenga mac address
+	// llena un array de strings con cada interfaz que tenga mac address
     var as []string
     for _, ifa := range ifas {
         a := ifa.HardwareAddr.String()
@@ -177,6 +210,9 @@ func getMacAddr() ([]string, error) {
     }
     return as, nil
 }
+
+
+
 
 func check(e error) {
     if e != nil {
@@ -267,17 +303,11 @@ func main(){
 		os.Exit(0)
 	}
 
-	if (mqpub!="") {
-		inicioConexion(mqpub)
-		//TODO obtener basecola
 
-	} else{
-		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
-	}
-	
 	buffer:= make([]byte, bufferSize)
 	var device string
 	var statusFileName string
+
 	
 	// lo que hay detras de las opciones en la linea de comando ...
 	if flag.Arg(0)=="" {
@@ -286,6 +316,19 @@ func main(){
     } else{
 		device=flag.Arg(0);
 		statusFileName=filepath.Base(flag.Arg(0))+ ".dat"	
+	}
+
+	var topic string
+	if (mqpub!="") {
+		if *pOpcionCbc == true {
+			verificarCertificadoBroker=true
+		} else{
+			verificarCertificadoBroker=false
+		}
+		inicioConexion(mqpub)
+		topic=devuelveTopic(mqpub,device);
+	} else{
+		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
 
 	leidos:=0
@@ -372,30 +415,6 @@ func main(){
 	// terminada la inicializacion. Se solicita la salida del estado inicial  evento con eventoreal=false y tipo sensor=0 
 	tratarEvento(false,0,0,0)
 
-	/*
-	//Conexion con broker mosquitto
-	//var c mqtt.Client
-	if (mqpub!=""){ 
-		// se pone la primera mac address como clientID
-		// se obtienen todas las MACs del dispositivo
-		macs, err:=getMacAddr() 
-		if err != nil {
-			panic(err)
-		}
-
-		//Se pone como ClientID la primera MAC seguido del fichero de dispositivo. No pueden conectarse al broker dos cliente con mismo ClientID
-		//TODO Verificar que longitud ClientUD no supera max del estandar MQTT  a client id must be no longer than 23 characters.
-		opts.SetClientID(macs[0]+"-"+ filepath.Base(flag.Arg(0))) 
-
-		// Salvo que se especifique opcion -cbc, se ajusta la configuracion TLS para que no se verifique el certificado que presente el broker
-		if *pOpcionCbc == false {
-			//tlsconfig := NewTLSConfig()
-			tlsConfig := &tls.Config{InsecureSkipVerify: true, ClientAuth: tls.NoClientCert}
-			opts.SetTLSConfig(tlsConfig) 
-		}
-	}
-	*/
-
 	// 	A la escucha de eventos ....
 	for {
 		leidos, err := f.Read(buffer)
@@ -411,11 +430,9 @@ func main(){
 		tratarEvento(true, tipoSensor, posicion ,valor)
  		
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
-	
-		if (mqpub!=""){
+			if (mqpub!=""){
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
-            //TODO ajustar topic correcto
-			publicar("honduras6/dragonrise_3/event", string(estado))
+			publicar(topic, string(estado))
 		}
 	}
 }
