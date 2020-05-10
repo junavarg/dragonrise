@@ -30,15 +30,15 @@ const(
 	maxCom = 7     //número máximo de ejes-conmutadores 
 )
 
+// constantes de mqtt
 const (
 	urlv ="wss://mqttws.vigilanet.com:443"
 	urlh ="tcp://broker.hivemq.com:1883"
 	urlh2 ="ws://broker.hivemq.com:8000"
 	urlm="ws://test.mosquitto.org:8080"
 	urle="tcp://broker.emqx.io:1883"
-	//ClientID="50695833"
 	ClientID=""
-	basecola="casa/montejo"+ClientID
+	//basecola="casa/montejo"+ClientID
 )
 
 //definicion de tipos
@@ -63,6 +63,7 @@ var (
 	fs *os.File  				//handle de fichero de estado
 )
 
+//variables globales de MQTT
 var (
 	broker = [...]string{ 
 		"tcp://broker.hivemq.com:1883",
@@ -159,12 +160,7 @@ func publicar(basecola string, carga string){
 	}
 }
 
-
-// funcion callback  handler OnConnect  Se llama en la conexion inicial y el las posteriores reconexiones
-func ch (client mqtt.Client) {
-	fmt.Fprintf(os.Stderr, "Conectado broker: \n")
-}
-
+// TODO usar o eliminar
 func getMacAddr() ([]string, error) {
     ifas, err := net.Interfaces()
     if err != nil {
@@ -271,32 +267,10 @@ func main(){
 		os.Exit(0)
 	}
 
-	//TODO retirar
-	/*
-	urlMqttBroker:=""
-	dragonriseEventTopic:= ""
-	usuario:=string("")
-	password:=string("") 
-	*/
-	
 	if (mqpub!="") {
-
 		inicioConexion(mqpub)
-	/*	
-		uri, _ := url.Parse(mqpub)
-		urlMqttBroker = fmt.Sprintf("%s://%s", uri.Scheme, uri.Host)
-		pUsuariopassword:=uri.User
-		if pUsuariopassword != nil {
-			usuario=(*pUsuariopassword).Username()
-			password, _=(*pUsuariopassword).Password()
-		}
-		baseTopic := uri.Path[1:len(uri.Path)] // retira el primer slash
-		//TODO: asegurar NO slash final en base topic
-		dragonriseEventTopic = baseTopic+"/"+filepath.Base(flag.Arg(0))+"/event"
-		fmt.Fprintf(os.Stderr,"URL broker MQTT: %s\n", urlMqttBroker)
-		fmt.Fprintf(os.Stderr,"Usuario : contraseña --> %s : %s\n", usuario, password)
-		fmt.Fprintf(os.Stderr,"Topic Eventos(publicación): %s\n", dragonriseEventTopic)
-	*/	
+		//TODO obtener basecola
+
 	} else{
 		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
@@ -398,50 +372,29 @@ func main(){
 	// terminada la inicializacion. Se solicita la salida del estado inicial  evento con eventoreal=false y tipo sensor=0 
 	tratarEvento(false,0,0,0)
 
+	/*
 	//Conexion con broker mosquitto
 	//var c mqtt.Client
 	if (mqpub!=""){ 
-
-	// TODO separar topicBase	en var dragonriseeventopic
-
-	/*	
-		//create a ClientOptions	
-		opts := mqtt.NewClientOptions()
-	
-		// se ajustan valores de configuracion de la conexion de este cliente
-		opts.AddBroker(urlMqttBroker)
-		//opts.SetCleanSession(true)  //true es el default
-		//opts.SetProtocolVersion(4)  //version de protocolo 4=MQTT 3.1.1 (default)    3=MQTT 3.1
-		opts.SetUsername(usuario)
-		opts.SetPassword(password)
-		
 		// se pone la primera mac address como clientID
 		// se obtienen todas las MACs del dispositivo
 		macs, err:=getMacAddr() 
 		if err != nil {
 			panic(err)
 		}
+
 		//Se pone como ClientID la primera MAC seguido del fichero de dispositivo. No pueden conectarse al broker dos cliente con mismo ClientID
 		//TODO Verificar que longitud ClientUD no supera max del estandar MQTT  a client id must be no longer than 23 characters.
 		opts.SetClientID(macs[0]+"-"+ filepath.Base(flag.Arg(0))) 
-		opts.SetKeepAlive(2 * time.Second)
-		opts.SetPingTimeout(1 * time.Second)
-		opts.SetOnConnectHandler (ch)
+
 		// Salvo que se especifique opcion -cbc, se ajusta la configuracion TLS para que no se verifique el certificado que presente el broker
 		if *pOpcionCbc == false {
 			//tlsconfig := NewTLSConfig()
 			tlsConfig := &tls.Config{InsecureSkipVerify: true, ClientAuth: tls.NoClientCert}
 			opts.SetTLSConfig(tlsConfig) 
 		}
-		//Crea una estructura con los datos de conexión del cliente
-		c = mqtt.NewClient(opts)
-		if token := c.Connect(); token.Wait() && token.Error() != nil {
-		//TODO sustituir por mensaje en stderr
-			fmt.Fprintf(os.Stderr,"Error conexion con broker MQTT:%s\n", token.Error())
-		}
-
-		*/
 	}
+	*/
 
 	// 	A la escucha de eventos ....
 	for {
@@ -463,18 +416,6 @@ func main(){
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
             //TODO ajustar topic correcto
 			publicar("honduras6/dragonrise_3/event", string(estado))
-
-			// Publish will publish a message with the specified QoS and content
-			// to the specified topic.
-			// Returns a token to track delivery of the message to the broker
-			// Publish(topic string, qos byte, retained bool, payload interface{}) Token
-		/*
-			// Se pone el flag de "retained" del ultimo mensaje para que al conectar el subcriptor reciba el estado actual
-			token := c.Publish(dragonriseEventTopic, 0, true, string(estado))
-			token.Wait()
-		*/	
-
 		}
-		
 	}
 }
