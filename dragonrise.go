@@ -19,10 +19,11 @@ import (
 	"encoding/json"
 	"github.com/eclipse/paho.mqtt.golang"
 	"crypto/tls"
+	"crypto/md5"
 )
 // constantes
 const(
-	versionFecha = "v020 - 10 mayo 2020 - Integra funciones MQTT de pruebahivemq.go - sucio" 
+	versionFecha = "v023 - 11 mayo 2020 - ClientID como hash-MD5 de MAC+device+ num cliente" 
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -32,6 +33,7 @@ const(
 
 // constantes de mqtt
 const (
+	maxNumberOfBroquers = 6
 	urlv ="wss://mqttws.vigilanet.com:443"
 	urlh ="tcp://broker.hivemq.com:1883"
 	urlh2 ="ws://broker.hivemq.com:8000"
@@ -64,9 +66,9 @@ var (
 
 //variables globales de MQTT
 var (
-	broker = [...]string{ 
+	broker = [maxNumberOfBroquers]string{ 
 		"tcp://broker.hivemq.com:1883",
-	//	"ws://test.mosquitto.org:8080", 
+		"ws://test.mosquitto.org:8080", 
 	//	"tcp://mqtt.eclipse.org:1883",
 	//	"tcp://broker.emqx.io:1883",
 		"wss://mqttws.vigilanet.com:443"}
@@ -80,22 +82,22 @@ var (
 
 func onConnectHandler(c mqtt.Client){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Print("conectado a algúno de estos servidores: ")
+	fmt.Printf("\nConectado a un servidor: ")
 	for _, v:= range lectorOpcionesCliente.Servers(){
-		fmt.Print(v) 
+		fmt.Printf("%s",v) 
 		fmt.Printf(" ")
 	}
-	fmt.Printf("\n")
+	fmt.Printf(" con clientID %s", lectorOpcionesCliente.ClientID())
 	//TODO Descubrir a que server se ha conectado si se ha metido más de uno con AddBroker
 }
 
 func onConnetionLostHandler(c mqtt.Client, er error ){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Println("conexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
+	fmt.Println("\nconexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
 }
 
 func onReconnectingHandler(c mqtt.Client, co *mqtt.ClientOptions){
-	fmt.Println("¡¡ inicio reconexión ... !! ")
+	fmt.Println("\n¡¡ inicio reconexión ... !! ")
 }
 
 // Conecta con broker con protocolo y puyerto indicado el la url. 
@@ -124,19 +126,22 @@ func inicioConexion(urlBroker ...string){
 		}
 	}
 
-		var clientID string	
-		// se pone la primera mac address como clientID
-		// se obtienen todas las MACs del dispositivo
-		macs, err:=getMacAddr() 
-		
-		if err == nil {
-			//TODO quitar
-			//panic(err)
-			
-			//Se pone como ClientID la primera MAC seguido del fichero de dispositivo. No pueden conectarse al broker dos cliente con mismo ClientID
-			//TODO Verificar que longitud ClientUD no supera max del estandar MQTT  a client id must be no longer than 23 characters.
-			clientID=(macs[0]+"-"+ filepath.Base(flag.Arg(0))) 	
-		}
+	//Obtención de un clientID para cliente MQQT activo
+	// No pueden conectarse al broker dos cliente con mismo ClientID
+	var preClientID string // clientID antes de hacer el hash
+	var clientID string	 // hash-MD5 de preClientID
+
+	// se obtienen todas las MACs del dispositivo
+	macs, _:=getMacAddr() 
+	// Se pone como preClientID la primera MAC - seguido del fichero de dispositivo - seguido numero de cliente. 
+	preClientID = (macs[0] + filepath.Base(flag.Arg(0)) + string(numCliente)) 	
+	// clientID es el hash-MD5 de preClientID truncado a 10caracterews hexadecimales
+	clientID = fmt.Sprintf("%x", md5.Sum([]byte(preClientID)))[0:10]
+	
+	//TODO retirar o controlar con opcion en linea de comando
+	//Si se pasa un clinteID con cero caracteres el broker le asigna uno aleatorio interno que no comunica al propio cliente
+	//Esto puede tener limitaciones.  
+	//clientID=""
 		
 	opcionesCliente[numCliente].
 		SetUsername(usuario).
@@ -156,16 +161,14 @@ func inicioConexion(urlBroker ...string){
 		if verificarCertificadoBroker == false {
 			opcionesCliente[numCliente].SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
 		}
-	
-
 
 	cliente[numCliente] = mqtt.NewClient(opcionesCliente[numCliente])
 	numClientes++
 	//conexion inicial asíncrona una vez establecidos los clientes mediante función anónima
 	go func (numCliente int){
-		fmt.Println("Conexión inicial ...")
+		fmt.Printf("\nConexión inicial ...")
 		if token := cliente[numCliente].Connect(); token.Wait() && token.Error() != nil {
-			fmt.Println("Error de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
+			fmt.Printf("\nError de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
 		} 
 	}(numCliente)
 }
@@ -174,8 +177,9 @@ func publicar(basecola string, carga string){
 	for i:=0; i<numClientes; i++{
 		if cliente[i].IsConnectionOpen(){
 			cliente[i].Publish(basecola, 0, true, carga) // se publica con qos=0 y retention=true
+			fmt.Printf(" ok->%d",i)
 		} else{
-			fmt.Printf("*")
+			fmt.Printf(" ko->%d",i)
 		}
 	}
 }
@@ -210,9 +214,6 @@ func getMacAddr() ([]string, error) {
     }
     return as, nil
 }
-
-
-
 
 func check(e error) {
     if e != nil {
@@ -254,7 +255,7 @@ func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor
 	}
 	if tipoSensor == 0 || eventoReal == true{
 		salida, _ := json.Marshal(&tarjeta)
-		fmt.Println(string(salida))	
+		fmt.Printf("\n%s", string(salida))	
 		//TODO: Tratar errores
 		fs.Truncate(0)
 		fs.Seek(0,0)
@@ -265,11 +266,17 @@ func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor
 }
 
 func main(){
-	fmt.Fprintf(os.Stderr,"stderr: dragonrise %s  autor:junav (junav2@hotmail.com)\n", versionFecha)
+	fmt.Fprintf(os.Stderr,"stderr: dragonrise %s  autor:junav (junav2@hotmail.com)", versionFecha)
 
 	pOpcionH := flag.Bool("h", false, "Muestra más información de ayuda")
 	var mqpub string
-	flag.StringVar(&mqpub, "mqpub", "", "URL MQTT Broker y topic de publicacion de mensajes mqttprotocol://host.dominio:puerto/base_topic")
+	var mqpub2 string
+	var mqpub3 string
+
+	flag.StringVar(&mqpub,  "mqpub",  "", "URL MQTT Broker y topic de publicacion de mensajes mqttprotocol://host.dominio.tld:puerto/base_topic")
+	flag.StringVar(&mqpub2, "mqpub2", "", "URL 2n MQTT Broker y topic de publicacion de mensajes mqttprotocol://host.dominio.tld:puerto/base_topic")
+	flag.StringVar(&mqpub3, "mqpub3", "", "URL 3r MQTT Broker y topic de publicacion de mensajes mqttprotocol://host.dominio.tld:puerto/base_topic")
+
 	pOpcionCbc := flag.Bool("cbc", false, "Check Broker Certificate. Si no se pone esta opción el certificado presentado por el MQTT broker no será comprobado")
 	_=pOpcionCbc
 
@@ -284,13 +291,19 @@ func main(){
 		fmt.Println("Opciones:")
 		fmt.Println("-mqpub <url>")
 		fmt.Println("       Especifica la URL de brocker MQTT y la raiz de un topic (basetopic) donde publicar el estado cada vez que se produzca un evento")
+		fmt.Println("       Formato URL:    protocolo://[usuario[:password]@]host.dominio.tld:puerto/base_topic")
 		fmt.Println("       Ejemplos:")
-		fmt.Println("       -mqpub=tcp://host.dominio.dom:1883/base_topic")
-		fmt.Println("       -mqpub=ssl://[usuario[:password]@]host.dominio.dom:8883/base_topic")
-		fmt.Println("       -mqpub=ws://host.dominio.dom:80/base_topic")
-		fmt.Println("       -mqpub=wss://[usuario[:password]@]host.dominio.dom:443/base_topic")
+		fmt.Println("       -mqpub=tcp://host.dominio.tld:1883/base_topic")
+		fmt.Println("       -mqpub=ssl://[usuario[:password]@]host.dominio.tld:8883/base_topic")
+		fmt.Println("       -mqpub=ws://host.dominio.tld:80/base_topic")
+		fmt.Println("       -mqpub=wss://[usuario[:password]@]host.dominio.tld:443/base_topic")
 		fmt.Println("       Para enviar credenciales de autenticacion por Internet se debe emplear un protocolo de transporte cifrado,  ssl: (sobre TCP) ó wss: (sobre WebSockets)")
 		fmt.Println("       Los mensajes se publican en 'clean session' con qos 0 y con 'retained flag' para que en cada nueva conexión el subcriptor reciba un mensaje con el estado actual")
+		fmt.Println("-mqpub2 <url>")
+		fmt.Println("-mqpub3 <url>")
+		fmt.Println("       Especifica un segundo/tercer URL de brockers MQTT.")
+		fmt.Println("       Formato url: protocolo://[usuario[:password]@]host.dominio.tld:puerto")
+		fmt.Println("       Ignora base topic si se ponde en URL")
 		fmt.Println()
 		fmt.Println("-cbc")
 		fmt.Println("       Check Broker Certificate. Habilita que se verifique el certificado presentado por el broker MQTT") 
@@ -327,6 +340,13 @@ func main(){
 		}
 		inicioConexion(mqpub)
 		topic=devuelveTopic(mqpub,device);
+		if (mqpub2!="") {
+			inicioConexion(mqpub2)
+			if (mqpub3!=""){
+				inicioConexion(mqpub3)
+			}
+		}	
+
 	} else{
 		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
@@ -340,26 +360,26 @@ func main(){
 	tarjeta.Swt=switches[:maxSwt]
 	tarjeta.Com=conmutadores[:maxCom]
 	
-	fmt.Fprintf(os.Stderr, "Abriendo %s\n", device)
+	fmt.Fprintf(os.Stderr, "\nAbriendo %s", device)
 	f, err := os.Open(device)
 	check(err)
 	defer f.Close()
 	
-	fmt.Fprintf(os.Stderr, "Abriendo %s\n", statusFilePath + statusFileName)	
+	fmt.Fprintf(os.Stderr, "\nAbriendo %s", statusFilePath + statusFileName)	
 	fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR, 0755) //fs está declarada a nivel global para que pueda acceder la funcion tratarEvento()
 	if os.IsPermission(err){
 		check(err)
 	}
 	if os.IsNotExist(err){
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		fmt.Fprintf(os.Stderr, "\n%s", err)
 		err:=os.Mkdir(statusFilePath, 0744)
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		fmt.Fprintf(os.Stderr, "\n%s", err)
 		fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR|os.O_CREATE, 0755)
 		check(err)
 	}
 	defer fs.Close()
 		
-	fmt.Fprintf(os.Stderr, "List of switches and axes and initial/current values\n")
+	fmt.Fprintf(os.Stderr, "\nList of switches and axes and initial/current values")
 	
 	/*
 	El controlador joystick /dev/input/js0 tras la apertura del fichero de dispositivo devuelve en orden "eventos sintéticos" (no reales)
@@ -373,13 +393,13 @@ func main(){
 		check(err)
 		if leidos!=8{
 		// error de inicializacion
-			fmt.Fprintf(os.Stderr, "Error de inicializacion switches\n")
+			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
 			os.Exit(0)
 		}
 		
 		if buffer[6]!=0x81 {
 			// error de inicializacion
-			fmt.Fprintf(os.Stderr, "Error de inicializacion switches\n")
+			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
 			os.Exit(0)
 		}
 		
@@ -395,13 +415,13 @@ func main(){
 		check(err)
 		if leidos!=8{
 		// error de inicializacion
-			fmt.Fprintf(os.Stderr, "Error de inicializacion switches\n")
+			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
 			os.Exit(0)
 		}
 		
 		if buffer[6]!=0x82 {
 			// error de inicializacion
-			fmt.Fprintf(os.Stderr, "Error de inicializacion switches\n")
+			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
 			os.Exit(0)
 		}
 		
@@ -420,7 +440,7 @@ func main(){
 		leidos, err := f.Read(buffer)
 		check(err)
 		if leidos!=8{
-			fmt.Fprintf(os.Stderr, "Error: Lectura de evento con menos de 8bytes\n")
+			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
 		} 
 		
 		tipoSensor=buffer[6]&(0xFF^0x80)
