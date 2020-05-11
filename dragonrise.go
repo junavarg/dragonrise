@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v023 - 11 mayo 2020 - ClientID como hash-MD5 de MAC+device+ num cliente" 
+	versionFecha = "v024 - 11 mayo 2020 - cambios menores" 
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -34,11 +34,6 @@ const(
 // constantes de mqtt
 const (
 	maxNumberOfBroquers = 6
-	urlv ="wss://mqttws.vigilanet.com:443"
-	urlh ="tcp://broker.hivemq.com:1883"
-	urlh2 ="ws://broker.hivemq.com:8000"
-	urlm="ws://test.mosquitto.org:8080"
-	urle="tcp://broker.emqx.io:1883"
 	sufijoFinalTopic="event"
 )
 
@@ -301,9 +296,9 @@ func main(){
 		fmt.Println("       Los mensajes se publican en 'clean session' con qos 0 y con 'retained flag' para que en cada nueva conexión el subcriptor reciba un mensaje con el estado actual")
 		fmt.Println("-mqpub2 <url>")
 		fmt.Println("-mqpub3 <url>")
-		fmt.Println("       Especifica un segundo/tercer URL de brockers MQTT.")
-		fmt.Println("       Formato url: protocolo://[usuario[:password]@]host.dominio.tld:puerto")
-		fmt.Println("       Ignora base topic si se ponde en URL")
+		fmt.Println("       Especifica segundo/tercer url de servidor/broker MQTT. Formato url:")
+		fmt.Println("          protocolo://[usuario[:password]@]host.dominio.tld:puerto")
+		fmt.Println("       Ignora base_topic si se pone al final de la url. Unicamente se condidera la especificada en -mqpub")
 		fmt.Println()
 		fmt.Println("-cbc")
 		fmt.Println("       Check Broker Certificate. Habilita que se verifique el certificado presentado por el broker MQTT") 
