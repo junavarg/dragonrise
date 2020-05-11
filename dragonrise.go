@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v024 - 11 mayo 2020 - cambios menores" 
+	versionFecha = "v025 - 11 mayo 2020"  // no publica si el evento es espurio
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -211,9 +211,10 @@ func getMacAddr() ([]string, error) {
 }
 
 func check(e error) {
-    if e != nil {
-        panic(e)
-    }
+	if e!=nil {
+		fmt.Fprintf(os.Stderr, "  ...error: %s\n", e)
+		os.Exit(-1)
+	}
 }
 
 /*  
@@ -326,7 +327,43 @@ func main(){
 		statusFileName=filepath.Base(flag.Arg(0))+ ".dat"	
 	}
 
-	var topic string
+	
+
+
+
+
+	leidos:=0
+	
+	var tipoSensor byte
+	var posicion byte
+	var valor int16
+	
+	tarjeta.Swt=switches[:maxSwt]
+	tarjeta.Com=conmutadores[:maxCom]
+	
+	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de dispositivo %s", device)
+	f, err := os.Open(device)
+	if err!=nil{
+		check(err)
+	} 
+	
+	defer f.Close() 
+	
+	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de estado de interruptores %s", statusFilePath + statusFileName)	
+	fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR, 0755) //fs está declarada a nivel global para que pueda acceder la funcion tratarEvento()
+	if os.IsPermission(err){
+		check(err)
+	}
+	if os.IsNotExist(err){
+		fmt.Fprintf(os.Stderr, "\n%s", err)
+		err:=os.Mkdir(statusFilePath, 0755)
+		fmt.Fprintf(os.Stderr, "\n%s", err)
+		fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR|os.O_CREATE, 0755)
+		check(err)
+	}
+	defer fs.Close()
+
+	var topic string 
 	if (mqpub!="") {
 		if *pOpcionCbc == true {
 			verificarCertificadoBroker=true
@@ -346,35 +383,7 @@ func main(){
 		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
 
-	leidos:=0
-	
-	var tipoSensor byte
-	var posicion byte
-	var valor int16
-	
-	tarjeta.Swt=switches[:maxSwt]
-	tarjeta.Com=conmutadores[:maxCom]
-	
-	fmt.Fprintf(os.Stderr, "\nAbriendo %s", device)
-	f, err := os.Open(device)
-	check(err)
-	defer f.Close()
-	
-	fmt.Fprintf(os.Stderr, "\nAbriendo %s", statusFilePath + statusFileName)	
-	fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR, 0755) //fs está declarada a nivel global para que pueda acceder la funcion tratarEvento()
-	if os.IsPermission(err){
-		check(err)
-	}
-	if os.IsNotExist(err){
-		fmt.Fprintf(os.Stderr, "\n%s", err)
-		err:=os.Mkdir(statusFilePath, 0744)
-		fmt.Fprintf(os.Stderr, "\n%s", err)
-		fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR|os.O_CREATE, 0755)
-		check(err)
-	}
-	defer fs.Close()
-		
-	fmt.Fprintf(os.Stderr, "\nList of switches and axes and initial/current values")
+	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
 	
 	/*
 	El controlador joystick /dev/input/js0 tras la apertura del fichero de dispositivo devuelve en orden "eventos sintéticos" (no reales)
@@ -442,10 +451,9 @@ func main(){
 		posicion = buffer[7]
 		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
 		    
-		tratarEvento(true, tipoSensor, posicion ,valor)
- 		
+		error:=tratarEvento(true, tipoSensor, posicion ,valor)
+		if (error==0 && mqpub!=""){
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
-			if (mqpub!=""){
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
 			publicar(topic, string(estado))
 		}
