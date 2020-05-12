@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v025 - 11 mayo 2020"  // no publica si el evento es espurio
+	versionFecha = "v026 - 12 mayo 2020"  // Salida info y errores por stderr
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -77,22 +77,22 @@ var (
 
 func onConnectHandler(c mqtt.Client){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Printf("\nConectado a un servidor: ")
+	fmt.Fprintf(os.Stderr,"\nConectado a un servidor: ")
 	for _, v:= range lectorOpcionesCliente.Servers(){
-		fmt.Printf("%s",v) 
-		fmt.Printf(" ")
+		fmt.Fprintf(os.Stderr,"%s",v) 
+		fmt.Fprintf(os.Stderr," ")
 	}
-	fmt.Printf(" con clientID %s", lectorOpcionesCliente.ClientID())
+	fmt.Fprintf(os.Stderr," con clientID %s", lectorOpcionesCliente.ClientID())
 	//TODO Descubrir a que server se ha conectado si se ha metido más de uno con AddBroker
 }
 
 func onConnetionLostHandler(c mqtt.Client, er error ){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Println("\nconexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
+	fmt.Fprintf(os.Stderr,"\nconexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
 }
 
 func onReconnectingHandler(c mqtt.Client, co *mqtt.ClientOptions){
-	fmt.Println("\n¡¡ inicio reconexión ... !! ")
+	fmt.Fprintf(os.Stderr,"\n¡¡ inicio reconexión ... !! ")
 }
 
 // Conecta con broker con protocolo y puyerto indicado el la url. 
@@ -161,9 +161,9 @@ func inicioConexion(urlBroker ...string){
 	numClientes++
 	//conexion inicial asíncrona una vez establecidos los clientes mediante función anónima
 	go func (numCliente int){
-		fmt.Printf("\nConexión inicial ...")
+		fmt.Fprintf(os.Stderr,"\nConexión inicial ...")
 		if token := cliente[numCliente].Connect(); token.Wait() && token.Error() != nil {
-			fmt.Printf("\nError de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
+			fmt.Fprintf(os.Stderr,"\nError de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
 		} 
 	}(numCliente)
 }
@@ -172,9 +172,9 @@ func publicar(basecola string, carga string){
 	for i:=0; i<numClientes; i++{
 		if cliente[i].IsConnectionOpen(){
 			cliente[i].Publish(basecola, 0, true, carga) // se publica con qos=0 y retention=true
-			fmt.Printf(" ok->%d",i)
+			fmt.Fprintf(os.Stderr," ok->%d",i)
 		} else{
-			fmt.Printf(" ko->%d",i)
+			fmt.Fprintf(os.Stderr," ko->%d",i)
 		}
 	}
 }
@@ -251,7 +251,7 @@ func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor
 	}
 	if tipoSensor == 0 || eventoReal == true{
 		salida, _ := json.Marshal(&tarjeta)
-		fmt.Printf("\n%s", string(salida))	
+		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
 		//TODO: Tratar errores
 		fs.Truncate(0)
 		fs.Seek(0,0)
@@ -327,11 +327,6 @@ func main(){
 		statusFileName=filepath.Base(flag.Arg(0))+ ".dat"	
 	}
 
-	
-
-
-
-
 	leidos:=0
 	
 	var tipoSensor byte
@@ -355,6 +350,7 @@ func main(){
 		check(err)
 	}
 	if os.IsNotExist(err){
+		fmt.Fprintf(os.Stderr,"\nCreando fichero de estado %s", statusFilePath + statusFileName)
 		fmt.Fprintf(os.Stderr, "\n%s", err)
 		err:=os.Mkdir(statusFilePath, 0755)
 		fmt.Fprintf(os.Stderr, "\n%s", err)
@@ -380,7 +376,7 @@ func main(){
 		}	
 
 	} else{
-		fmt.Fprintf(os.Stderr, "%s\n", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
+		fmt.Fprintf(os.Stderr, "\n%s", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
 
 	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
