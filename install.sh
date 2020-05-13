@@ -6,8 +6,8 @@
 
 
 wget https://raw.githubusercontent.com/junavarg/dr/master/31-dragonriseRPi.rules
-cp 31-dragonriseRPi.rules /etc/udev/rules.d/
-udevadm control --reload-rules
+sudo cp 31-dragonriseRPi.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
 
 wget https://raw.githubusercontent.com/junavarg/dr/master/dragonrise.go
 go get github.com/eclipse/paho.mqtt.golang 
