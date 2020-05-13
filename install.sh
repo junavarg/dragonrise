@@ -16,6 +16,6 @@ go build -ldflags "-s -w" dragonrise.go
 sudo cp dragonrise /usr/local/bin
 sudo chmod 777 /usr/local/bin/dragonrise
 
-//se crea el subdirectorio  para los ficheros de estado con propietario root y con permisos para todos
+# se crea el subdirectorio  para los ficheros de estado con propietario root y con permisos para todos
 sudo mkdir /var/lib/dragonrise
 sudo chmod 777 /var/lib/dragonrise
