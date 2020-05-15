@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v028 - 15 mayo 2020"  // array de tarjetas y tiempo en JSON inicial
+	versionFecha = "v029 - 15 mayo 2020"  // función tratarEvento con parámetro índice de (array), array de array de valores switches/com.  e inicializacion para todas las tarjetas
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -56,8 +56,8 @@ type dragonrise struct{
 
 //variables globales
 var (
-	switches [maxSwt]int16     	// array de interruptores
-	conmutadores [maxCom]int16 	// array de ejes/conmutadores
+	switches [maxTarjetas][maxSwt]int16     	// array de interruptores
+	conmutadores [maxTarjetas][maxCom]int16 	// array de ejes/conmutadores
 	tarjeta [maxTarjetas]dragonrise			// array de estructuras de ultimo evento y estados	
 	fs *os.File  				//handle de fichero de estado
 )
@@ -227,7 +227,7 @@ Registra eventos sinteticos (de conocimiento estado inicial) y reales
 en la struct de estado dragonrise, salvo que tipoSensor == 0
 Saca por stdout los valores de la struct, salvo eventoReal==false 
 */
-func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor int16) (error int){
+func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor byte, valorSensor int16) (error int){
 	switch tipoSensor{
 		//no registra estado en struct. Se asegura que numSensor y valorSensor sean 0
 		case 0:	
@@ -235,30 +235,22 @@ func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor
 			valorSensor=0
 		// en estos dos casos SI registra estado en struct
 		case 1:
-			tarjeta[0].Swt[numSensor] = valorSensor
+			tarjeta[numTarjeta].Swt[numSensor] = valorSensor
 		case 2:
 			//Descarta eventos espureos de ejes distitos a 0 o 1 ¡¡cuidadito con el algebra de Boole!!
 			if !(numSensor==0 || numSensor==1){
 				return 1
 			}
 			valorSensor=  valorSensor/32767   //si es tipo eje se normaliza el valor (-1 0 +1)
-			tarjeta[0].Com[numSensor]= valorSensor;
+			tarjeta[numTarjeta].Com[numSensor]= valorSensor;
 	}
-	tarjeta[0].Evento.TipoSensor = tipoSensor
-	tarjeta[0].Evento.NumSensor = numSensor
-	tarjeta[0].Evento.ValorSensor = valorSensor 
-	/*
-	// si eventoReal == false --> evento sintetico inicial
-	if eventoReal == false {
-		tarjeta[0].Tiempo = 0 // --> evento sintetico inicial
-	} else {
-		tarjeta[0].Tiempo = time.Now().Unix()  // --> evento real
-	}
-	*/
-	tarjeta[0].Tiempo = time.Now().Unix()  // --> evento real
+	tarjeta[numTarjeta].Evento.TipoSensor = tipoSensor
+	tarjeta[numTarjeta].Evento.NumSensor = numSensor
+	tarjeta[numTarjeta].Evento.ValorSensor = valorSensor 
+	tarjeta[numTarjeta].Tiempo = time.Now().Unix()  // --> evento real
 
 	if tipoSensor == 0 || eventoReal == true{
-		salida, _ := json.Marshal(&tarjeta[0])
+		salida, _ := json.Marshal(&tarjeta[numTarjeta])
 		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
 		//TODO: Tratar errores
 		fs.Truncate(0)
@@ -340,9 +332,17 @@ func main(){
 	var tipoSensor byte
 	var posicion byte
 	var valor int16
+
+	//For de inicailizacion de punteros a array de switeche y conmutadores todas las tarjetas
+    for i:=0; i<maxTarjetas; i++{
+		tarjeta[i].Swt=switches[i][:maxSwt]
+		tarjeta[i].Com=conmutadores[i][:maxCom]
+	} 
 	
-	tarjeta[0].Swt=switches[:maxSwt]
-	tarjeta[0].Com=conmutadores[:maxCom]
+	numTarjeta:=1
+
+
+
 	
 	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de dispositivo %s", device)
 	f, err := os.Open(device)
@@ -414,8 +414,9 @@ func main(){
 		tipoSensor=buffer[6]&(0xFF^0x80)
 		posicion = buffer[7]
 		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		    
-		tratarEvento(false, tipoSensor, posicion ,valor)
+
+	   
+		tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
 	}
 		
 	for nCom:=0 ; nCom<maxCom; nCom++ {
@@ -436,12 +437,14 @@ func main(){
 		tipoSensor=buffer[6]&(0xFF^0x80)
 		posicion = buffer[7]
 		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		    
-		tratarEvento(false, tipoSensor, posicion ,valor)
+		
+		 
+		tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
 	}
 	
 	// terminada la inicializacion. Se solicita la salida del estado inicial evento con eventoreal=false y tipo sensor=0 
-	er:=tratarEvento(false,0,0,0)
+	
+	er:=tratarEvento(numTarjeta,false,0,0,0)
 	// se publica el estado inicial
 	if (er==0 && mqpub!=""){
 		//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
@@ -462,8 +465,8 @@ func main(){
 		tipoSensor=buffer[6]&(0xFF^0x80)
 		posicion = buffer[7]
 		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		    
-		er := tratarEvento(true, tipoSensor, posicion ,valor)
+	  
+		er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
 		if (er==0 && mqpub!=""){
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
