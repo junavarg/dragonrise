@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v026 - 12 mayo 2020"  // Salida info y errores por stderr
+	versionFecha = "v027 - 15 mayo 2020"  // Last Will & Testament (LWT) con todos paramentero a 0 menos tipo de evento= -1
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -35,6 +35,8 @@ const(
 const (
 	maxNumberOfBroquers = 6
 	sufijoFinalTopic="event"
+	//lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0},\"switches\":[0,0,0,0,0,0,0,0,0,0,0,0],\"axes\":[0,0,0,0,0,0,0]}"
+	lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0}}" // mensaje Last Will que emitira el broker cuando el publicador se desconecta inexperadamente
 )
 
 //definicion de tipos
@@ -62,17 +64,19 @@ var (
 //variables globales de MQTT
 var (
 	broker = [maxNumberOfBroquers]string{ 
-		"tcp://broker.hivemq.com:1883",
-		"ws://test.mosquitto.org:8080", 
+	//	"tcp://broker.hivemq.com:1883",
+	//	"ws://test.mosquitto.org:8080", 
 	//	"tcp://mqtt.eclipse.org:1883",
 	//	"tcp://broker.emqx.io:1883",
-		"wss://mqttws.vigilanet.com:443"}
+	//	"wss://mqttws.vigilanet.com:443"
+	}
 		
 	cliente  [len(broker)]mqtt.Client
 	opcionesCliente [len(broker)]*mqtt.ClientOptions
 	// esta condición es para todos los clientes
-	verificarCertificadoBroker = false;
+	verificarCertificadoBroker = false
 	numClientes  int
+	topic string 
 )
 
 func onConnectHandler(c mqtt.Client){
@@ -137,7 +141,6 @@ func inicioConexion(urlBroker ...string){
 	//Si se pasa un clinteID con cero caracteres el broker le asigna uno aleatorio interno que no comunica al propio cliente
 	//Esto puede tener limitaciones.  
 	//clientID=""
-		
 	opcionesCliente[numCliente].
 		SetUsername(usuario).
 		SetPassword(password).	
@@ -147,6 +150,7 @@ func inicioConexion(urlBroker ...string){
 		SetConnectRetryInterval(30 * time.Second).
 		SetKeepAlive(30 * time.Second).
 		SetPingTimeout(5 * time.Second).
+		SetWill(topic,lwtMensaje, 0, true).
 		SetOnConnectHandler(onConnectHandler).	
 		SetConnectionLostHandler(onConnetionLostHandler).
 		SetReconnectingHandler(onReconnectingHandler)
@@ -168,10 +172,10 @@ func inicioConexion(urlBroker ...string){
 	}(numCliente)
 }
 
-func publicar(basecola string, carga string){
+func publicar(topic string, carga string){
 	for i:=0; i<numClientes; i++{
 		if cliente[i].IsConnectionOpen(){
-			cliente[i].Publish(basecola, 0, true, carga) // se publica con qos=0 y retention=true
+			cliente[i].Publish(topic, 0, true, carga) // se publica con qos=0 y retention=true
 			fmt.Fprintf(os.Stderr," ok->%d",i)
 		} else{
 			fmt.Fprintf(os.Stderr," ko->%d",i)
@@ -359,15 +363,15 @@ func main(){
 	}
 	defer fs.Close()
 
-	var topic string 
+	
 	if (mqpub!="") {
 		if *pOpcionCbc == true {
 			verificarCertificadoBroker=true
 		} else{
 			verificarCertificadoBroker=false
 		}
-		inicioConexion(mqpub)
 		topic=devuelveTopic(mqpub,device);
+		inicioConexion(mqpub)
 		if (mqpub2!="") {
 			inicioConexion(mqpub2)
 			if (mqpub3!=""){
@@ -432,8 +436,16 @@ func main(){
 		tratarEvento(false, tipoSensor, posicion ,valor)
 	}
 	
-	// terminada la inicializacion. Se solicita la salida del estado inicial  evento con eventoreal=false y tipo sensor=0 
-	tratarEvento(false,0,0,0)
+	// terminada la inicializacion. Se solicita la salida del estado inicial evento con eventoreal=false y tipo sensor=0 
+	er:=tratarEvento(false,0,0,0)
+	// se publica el estado inicial
+	if (er==0 && mqpub!=""){
+		//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
+		estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
+		//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
+		time.Sleep(2 * time.Second)
+		publicar(topic, string(estado))
+	}
 
 	// 	A la escucha de eventos ....
 	for {
@@ -447,8 +459,8 @@ func main(){
 		posicion = buffer[7]
 		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
 		    
-		error:=tratarEvento(true, tipoSensor, posicion ,valor)
-		if (error==0 && mqpub!=""){
+		er := tratarEvento(true, tipoSensor, posicion ,valor)
+		if (er==0 && mqpub!=""){
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
 			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
 			publicar(topic, string(estado))
