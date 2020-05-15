@@ -23,12 +23,13 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v027 - 15 mayo 2020"  // Last Will & Testament (LWT) con todos paramentero a 0 menos tipo de evento= -1
+	versionFecha = "v028 - 15 mayo 2020"  // array de tarjetas y tiempo en JSON inicial
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
 	maxSwt = 12    //número máximo de interruptores
 	maxCom = 7     //número máximo de ejes-conmutadores 
+	maxTarjetas =10 //número maximo de tarjetas (files devices) que se almacenaran en un array
 )
 
 // constantes de mqtt
@@ -57,7 +58,7 @@ type dragonrise struct{
 var (
 	switches [maxSwt]int16     	// array de interruptores
 	conmutadores [maxCom]int16 	// array de ejes/conmutadores
-	tarjeta dragonrise			// estructura de ultimo evento y estados	
+	tarjeta [maxTarjetas]dragonrise			// array de estructuras de ultimo evento y estados	
 	fs *os.File  				//handle de fichero de estado
 )
 
@@ -234,27 +235,30 @@ func tratarEvento (eventoReal bool, tipoSensor byte, numSensor byte, valorSensor
 			valorSensor=0
 		// en estos dos casos SI registra estado en struct
 		case 1:
-			tarjeta.Swt[numSensor] = valorSensor
+			tarjeta[0].Swt[numSensor] = valorSensor
 		case 2:
 			//Descarta eventos espureos de ejes distitos a 0 o 1 ¡¡cuidadito con el algebra de Boole!!
 			if !(numSensor==0 || numSensor==1){
 				return 1
 			}
 			valorSensor=  valorSensor/32767   //si es tipo eje se normaliza el valor (-1 0 +1)
-			tarjeta.Com[numSensor]= valorSensor;
+			tarjeta[0].Com[numSensor]= valorSensor;
 	}
-	tarjeta.Evento.TipoSensor = tipoSensor
-	tarjeta.Evento.NumSensor = numSensor
-	tarjeta.Evento.ValorSensor = valorSensor 
-	
+	tarjeta[0].Evento.TipoSensor = tipoSensor
+	tarjeta[0].Evento.NumSensor = numSensor
+	tarjeta[0].Evento.ValorSensor = valorSensor 
+	/*
 	// si eventoReal == false --> evento sintetico inicial
 	if eventoReal == false {
-		tarjeta.Tiempo = 0 // --> evento sintetico inicial
+		tarjeta[0].Tiempo = 0 // --> evento sintetico inicial
 	} else {
-		tarjeta.Tiempo = time.Now().Unix()  // --> evento real
+		tarjeta[0].Tiempo = time.Now().Unix()  // --> evento real
 	}
+	*/
+	tarjeta[0].Tiempo = time.Now().Unix()  // --> evento real
+
 	if tipoSensor == 0 || eventoReal == true{
-		salida, _ := json.Marshal(&tarjeta)
+		salida, _ := json.Marshal(&tarjeta[0])
 		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
 		//TODO: Tratar errores
 		fs.Truncate(0)
@@ -337,8 +341,8 @@ func main(){
 	var posicion byte
 	var valor int16
 	
-	tarjeta.Swt=switches[:maxSwt]
-	tarjeta.Com=conmutadores[:maxCom]
+	tarjeta[0].Swt=switches[:maxSwt]
+	tarjeta[0].Com=conmutadores[:maxCom]
 	
 	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de dispositivo %s", device)
 	f, err := os.Open(device)
