@@ -23,10 +23,11 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v030 - 16 mayo 2020"  // función reinicializarDragonrise(device)
+	versionFecha = "v031 - 16 mayo 2020"  // inclusion de device en JSON goroutine leerDevice(device) 
 	bufferSize =8 //numero de bytes de buffer de lectura
-	statusFileNameDefault = "js0.dat" 
+	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
+	statusFileExt= ".dat"
 	maxSwt = 12    //número máximo de interruptores
 	maxCom = 7     //número máximo de ejes-conmutadores 
 	maxTarjetas =10 //número maximo de tarjetas (files devices) que se almacenaran en un array
@@ -36,19 +37,19 @@ const(
 const (
 	maxNumberOfBroquers = 6
 	sufijoFinalTopic="event"
-	//lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0},\"switches\":[0,0,0,0,0,0,0,0,0,0,0,0],\"axes\":[0,0,0,0,0,0,0]}"
-	lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0}}" // mensaje Last Will que emitira el broker cuando el publicador se desconecta inexperadamente
+	lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0}}" // mensaje Last Will que emitirá el broker cuando el publicador se desconecta inexperadamente
 )
 
 //definicion de tipos
 type evento struct{
 	TipoSensor byte 	`json:"type"`
-	NumSensor byte     `json:"sensor"`
+	NumSensor byte 	    `json:"sensor"`
 	ValorSensor int16	`json:"value"`
 }
 
 type dragonrise struct{
 	Tiempo int64 		`json:"time"`
+	Dispositivo string	`json:"device"`
 	Evento evento   	`json:"event"`// último evento registrado
 	Swt []int16   		`json:"switches"`// estado actual de interruptores
 	Com []int16   		`json:"axes"`// estado actual de ejes/conmutadores
@@ -64,10 +65,7 @@ var (
 	hDispositivo [maxTarjetas]*os.File 	//handle de fichero de dispositivo
 	fEstado [maxTarjetas]string 		//nombre de fichero de estado
 	hEstado [maxTarjetas]*os.File 		//handle de fichero de estado
-	
-	//TODO retirar sustituir por array
-	fs *os.File  							//handle de fichero de estado
-
+	numTarjetas int						//numero de tarjetas gestionadas por el proceso dragonrise. Siempre numTarjetas <= maxTarjetas
 )
 
 //variables globales de MQTT
@@ -85,7 +83,7 @@ var (
 	// esta condición es para todos los clientes
 	verificarCertificadoBroker = false
 	numClientes  int
-	topic string 
+	topic [maxTarjetas]string  // habra tantos topics como tarjetas/devices Se ajusta el array al máximo
 )
 
 func onConnectHandler(c mqtt.Client){
@@ -159,7 +157,8 @@ func inicioConexion(urlBroker ...string){
 		SetConnectRetryInterval(30 * time.Second).
 		SetKeepAlive(30 * time.Second).
 		SetPingTimeout(5 * time.Second).
-		SetWill(topic,lwtMensaje, 0, true).
+		//TODO arreglar lwt topic no puede llevar wildcards 
+		SetWill(topic[0],lwtMensaje, 0, true).
 		SetOnConnectHandler(onConnectHandler).	
 		SetConnectionLostHandler(onConnetionLostHandler).
 		SetReconnectingHandler(onReconnectingHandler)
@@ -180,6 +179,8 @@ func inicioConexion(urlBroker ...string){
 		} 
 	}(numCliente)
 }
+
+
 
 func publicar(topic string, carga string){
 	for i:=0; i<numClientes; i++{
@@ -223,17 +224,10 @@ func getMacAddr() ([]string, error) {
     return as, nil
 }
 
-func check(e error) {
-	if e!=nil {
-		fmt.Fprintf(os.Stderr, "  ...error: %s\n", e)
-		os.Exit(-1)
-	}
-}
-
 /*  
-Registra eventos sinteticos (de conocimiento estado inicial) y reales 
-en la struct de estado dragonrise, salvo que tipoSensor == 0
-Saca por stdout los valores de la struct, salvo eventoReal==false 
+//Registra eventos sinteticos (de conocimiento estado inicial) y reales 
+//en la struct de estado dragonrise, salvo que tipoSensor == 0
+//Saca por stdout los valores de la struct, salvo eventoReal==false 
 */
 func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor byte, valorSensor int16) (error int){
 	switch tipoSensor{
@@ -255,6 +249,7 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 	tarjeta[numTarjeta].Evento.TipoSensor = tipoSensor
 	tarjeta[numTarjeta].Evento.NumSensor = numSensor
 	tarjeta[numTarjeta].Evento.ValorSensor = valorSensor 
+	tarjeta[numTarjeta].Dispositivo = filepath.Base(fDispositivo[numTarjeta])
 	tarjeta[numTarjeta].Tiempo = time.Now().Unix()  // --> evento real
 
 	if tipoSensor == 0 || eventoReal == true{
@@ -270,10 +265,9 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 }
 
 
-func reinicializaDragonrise(filedevice string) {
+func reinicializaDragonrise(nDisp int) {
 	var err error
-	nDisp:=0
-	fDispositivo[nDisp]=filedevice
+	
 	device:=fDispositivo[nDisp]
 			
 	pintadoError1:=false
@@ -293,8 +287,6 @@ func reinicializaDragonrise(filedevice string) {
 		_=err //para evitar error de no uso
 		time.Sleep(2 * time.Second)  //espera para reintento
 	}
-	
-	fEstado[nDisp] = statusFilePath + filepath.Base(filedevice)+ ".dat"
 	
 	hEstado[nDisp].Close()
 	hEstado[nDisp]=nil
@@ -356,6 +348,36 @@ func reinicializaDragonrise(filedevice string) {
 }
 
 
+func leerDevice(numTarjeta int){
+	
+	var tipoSensor byte
+	var posicion byte
+	var valor int16
+	buffer:= make([]byte, bufferSize)
+	for {
+		leidos, _ := hDispositivo[numTarjeta].Read(buffer)
+		if leidos!=8{
+			//TODO tratar error
+			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
+		} 
+		
+		tipoSensor=buffer[6]&(0xFF^0x80)
+		posicion = buffer[7]
+		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
+	  
+		er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
+		_=er
+/*			
+		if (er==0 && mqpub!=""){
+*/
+		if (er==0 ){
+		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
+			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
+			publicar(topic[numTarjeta], string(estado))
+		}
+	}
+}
+
 func main(){
 	fmt.Fprintf(os.Stderr,"stderr: dragonrise %s  autor:junav (junav2@hotmail.com)", versionFecha)
 
@@ -413,32 +435,29 @@ func main(){
 		tarjeta[i].Com=conmutadores[i][:maxCom]
 	} 
 
-	numTarjeta:=0
-
-	buffer:= make([]byte, bufferSize)
-	var device string
-	var statusFileName string
-
-	
-	// lo que hay detras de las opciones en la linea de comando son los dispositivos
-	//TODO for para todos los dispositivos
-	if flag.Arg(0)=="" {
-        device="/dev/input/js0"
-		statusFileName=statusFileNameDefault
-    } else{
-		device=flag.Arg(0);
-		statusFileName=filepath.Base(flag.Arg(0))+ ".dat"	
+	//  lo que hay detras de las opciones en la linea de comando son los dispositivos
+	//  Se establece default si no especifica al menos un device 
+	numTarjetas=1
+	fDispositivo[0] = nombreFicheroDispositivoOmision
+	fEstado[0]= statusFilePath + filepath.Base(fDispositivo[0]) + statusFileExt
+	//  Se carga en los arrays los nombres de ficheros de dispositivos y de estado
+	for i:=0; flag.Arg(i)!=""; i++ {
+		fDispositivo[i] = flag.Arg(i)
+		fEstado[i] = statusFilePath + filepath.Base(fDispositivo[i]) + statusFileExt
+		numTarjetas = i + 1
 	}
 
-	
 
+	
 	if (mqpub!="") {
 		if *pOpcionCbc == true {
 			verificarCertificadoBroker=true
 		} else{
 			verificarCertificadoBroker=false
 		}
-		topic=devuelveTopic(mqpub,device);
+		//TODO Inicializar todos los topics
+		topic[0]=devuelveTopic(mqpub,fDispositivo[0]);
+		
 		inicioConexion(mqpub)
 		if (mqpub2!="") {
 			inicioConexion(mqpub2)
@@ -453,19 +472,29 @@ func main(){
 
 	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
 
-	
-	reinicializaDragonrise(device)
-
-	
-	// se publica el estado inicial
-	if (mqpub!=""){
-		//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
-		estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
-		//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
-		//time.Sleep(1 * time.Second)
-		fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic, string(estado))
-		publicar(topic, string(estado))
+	for i:=0; i<numTarjetas; i++ {
+		fmt.Fprintf(os.Stderr, "\n %d  %s   %s", i, fDispositivo[i], fEstado[i]) 
+		reinicializaDragonrise(i)
+		/*
+		// se publica el estado inicial
+		if (mqpub!=""){
+			//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
+			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
+			//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
+			//time.Sleep(1 * time.Second)
+			fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic[numTarjeta], string(estado))
+			publicar(topic[numTarjeta], string(estado))
+		}
+		*/		
+		go leerDevice(i)		
 	}
+	fmt.Fprintf(os.Stderr, "\n")
+	
+	select {
+	}
+
+
+/*
 
 	// 	A la escucha de eventos ....
 
@@ -474,8 +503,7 @@ func main(){
 	var valor int16
 
 	for {
-		leidos, err := hDispositivo[numTarjeta].Read(buffer)
-		check(err)
+		leidos, _ := hDispositivo[numTarjeta].Read(buffer)
 		if leidos!=8{
 			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
 		} 
@@ -487,8 +515,9 @@ func main(){
 		er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
 		if (er==0 && mqpub!=""){
 		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
-			estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
-			publicar(topic, string(estado))
+			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
+			publicar(topic[numTarjeta], string(estado))
 		}
 	}
+*/	
 }
