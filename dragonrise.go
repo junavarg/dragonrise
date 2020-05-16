@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v031 - 16 mayo 2020"  // inclusion de device en JSON goroutine leerDevice(device) 
+	versionFecha = "v032 - 16 mayo 2020"  // lectura continua de con leerDevice(device), Bug falso eventos desconexion/conexion USB.
 	bufferSize =8 //numero de bytes de buffer de lectura
 	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -355,10 +355,10 @@ func leerDevice(numTarjeta int){
 	var valor int16
 	buffer:= make([]byte, bufferSize)
 	for {
-		leidos, _ := hDispositivo[numTarjeta].Read(buffer)
-		if leidos!=8{
-			//TODO tratar error
-			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
+		leidos, err:= hDispositivo[numTarjeta].Read(buffer)
+		if err!=nil || leidos!=8{
+			fmt.Fprintf(os.Stderr, "\nError: Lectura %s", fDispositivo[numTarjeta])
+			reinicializaDragonrise(numTarjeta)
 		} 
 		
 		tipoSensor=buffer[6]&(0xFF^0x80)
@@ -492,32 +492,4 @@ func main(){
 	
 	select {
 	}
-
-
-/*
-
-	// 	A la escucha de eventos ....
-
-	var tipoSensor byte
-	var posicion byte
-	var valor int16
-
-	for {
-		leidos, _ := hDispositivo[numTarjeta].Read(buffer)
-		if leidos!=8{
-			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
-		} 
-		
-		tipoSensor=buffer[6]&(0xFF^0x80)
-		posicion = buffer[7]
-		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-	  
-		er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
-		if (er==0 && mqpub!=""){
-		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
-			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
-			publicar(topic[numTarjeta], string(estado))
-		}
-	}
-*/	
 }
