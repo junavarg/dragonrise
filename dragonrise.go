@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v032 - 16 mayo 2020"  // lectura continua de con leerDevice(device), Bug falso eventos desconexion/conexion USB.
+	versionFecha = "v033 - 16 mayo 2020"  // Arreglo falsos eventos desconexion/conexion USB. JSON para publicar error de desconexion del dispositivo USB
 	bufferSize =8 //numero de bytes de buffer de lectura
 	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -42,7 +42,7 @@ const (
 
 //definicion de tipos
 type evento struct{
-	TipoSensor byte 	`json:"type"`
+	TipoSensor int8 	`json:"type"`
 	NumSensor byte 	    `json:"sensor"`
 	ValorSensor int16	`json:"value"`
 }
@@ -53,6 +53,12 @@ type dragonrise struct{
 	Evento evento   	`json:"event"`// último evento registrado
 	Swt []int16   		`json:"switches"`// estado actual de interruptores
 	Com []int16   		`json:"axes"`// estado actual de ejes/conmutadores
+}
+
+type dragonriseError struct{
+	Tiempo int64 		`json:"time"`
+	Dispositivo string	`json:"device"`
+	Evento evento   	`json:"event"`// último evento registrado
 }
 
 //variables globales
@@ -180,7 +186,7 @@ func inicioConexion(urlBroker ...string){
 	}(numCliente)
 }
 
-
+// publica en brokers a través de todos los clientes activos
 
 func publicar(topic string, carga string){
 	for i:=0; i<numClientes; i++{
@@ -229,7 +235,7 @@ func getMacAddr() ([]string, error) {
 //en la struct de estado dragonrise, salvo que tipoSensor == 0
 //Saca por stdout los valores de la struct, salvo eventoReal==false 
 */
-func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor byte, valorSensor int16) (error int){
+func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor int8, numSensor byte, valorSensor int16) (error int){
 	switch tipoSensor{
 		//no registra estado en struct. Se asegura que numSensor y valorSensor sean 0
 		case 0:	
@@ -245,6 +251,8 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 			}
 			valorSensor=  valorSensor/32767   //si es tipo eje se normaliza el valor (-1 0 +1)
 			tarjeta[numTarjeta].Com[numSensor]= valorSensor;
+		case -1:
+
 	}
 	tarjeta[numTarjeta].Evento.TipoSensor = tipoSensor
 	tarjeta[numTarjeta].Evento.NumSensor = numSensor
@@ -252,7 +260,7 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 	tarjeta[numTarjeta].Dispositivo = filepath.Base(fDispositivo[numTarjeta])
 	tarjeta[numTarjeta].Tiempo = time.Now().Unix()  // --> evento real
 
-	if tipoSensor == 0 || eventoReal == true{
+    if tipoSensor == 0 || eventoReal == true {
 		salida, _ := json.Marshal(&tarjeta[numTarjeta])
 		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
 		//TODO: Tratar errores
@@ -261,6 +269,23 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 		hEstado[numTarjeta].Write([]byte(salida))
 		hEstado[numTarjeta].Sync()
 	}
+	
+	if tipoSensor == -1{
+		var tarjetaError dragonriseError
+		tarjetaError.Evento.TipoSensor = tipoSensor
+		tarjetaError.Evento.NumSensor = 0
+		tarjetaError.Evento.ValorSensor = 0 
+		tarjetaError.Dispositivo = filepath.Base(fDispositivo[numTarjeta])
+		tarjetaError.Tiempo = time.Now().Unix()  // --> evento real
+		salida, _ := json.Marshal(&tarjetaError)
+		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
+		//TODO: Tratar errores
+		hEstado[numTarjeta].Truncate(0)
+		hEstado[numTarjeta].Seek(0,0)
+		hEstado[numTarjeta].Write([]byte(salida))
+		hEstado[numTarjeta].Sync()
+	}
+
 	return 0
 }
 
@@ -280,7 +305,7 @@ func reinicializaDragonrise(nDisp int) {
 	hDispositivo[nDisp]=nil
 	for hDispositivo[nDisp]==nil  {
 		hDispositivo[nDisp], err = os.Open(device)
-		if !pintadoError1==false {
+		if !pintadoError1{
 			fmt.Fprintf(os.Stderr, "\nNo se puede abrir dispositivo %s . Reintentado en silencio cada 2s ...", device)
 			pintadoError1=true
 		}
@@ -320,10 +345,10 @@ func reinicializaDragonrise(nDisp int) {
 			}			
 			goto inicio
 		}
-		tipoSensor:=buffer[6]&(0xFF^0x80)
+		tipoSensor:= (buffer[6]&(0xFF^0x80))
 		posicion := buffer[7]
 		valor := int16(binary.LittleEndian.Uint16(buffer[4:6]))
-	   	tratarEvento(nDisp, false, tipoSensor, posicion ,valor)
+	   	tratarEvento(nDisp, false, int8(tipoSensor), posicion ,valor)
 	}
 	for nCom:=0 ; nCom<maxCom; nCom++ {
 		leidos, err = hDispositivo[nDisp].Read(buffer)
@@ -337,7 +362,7 @@ func reinicializaDragonrise(nDisp int) {
 		tipoSensor:=buffer[6]&(0xFF^0x80)
 		posicion := buffer[7]
 		valor := int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		tratarEvento(nDisp, false, tipoSensor, posicion ,valor)
+		tratarEvento(nDisp, false, int8(tipoSensor), posicion ,valor)
 	}
 	
 	// terminada la inicializacion. Se solicita la salida del estado inicial evento con eventoreal=false y tipo sensor=0 
@@ -349,31 +374,36 @@ func reinicializaDragonrise(nDisp int) {
 
 
 func leerDevice(numTarjeta int){
-	
-	var tipoSensor byte
+	var tipoSensor int8
 	var posicion byte
 	var valor int16
 	buffer:= make([]byte, bufferSize)
+	reinicializaDragonrise(numTarjeta)
 	for {
 		leidos, err:= hDispositivo[numTarjeta].Read(buffer)
 		if err!=nil || leidos!=8{
-			fmt.Fprintf(os.Stderr, "\nError: Lectura %s", fDispositivo[numTarjeta])
-			reinicializaDragonrise(numTarjeta)
-		} 
+			fmt.Fprintf(os.Stderr, "\nError: Lectura %s. Reinicializando ...", fDispositivo[numTarjeta])
+			tipoSensor=-1
+			posicion = 0
+			valor = 0
+			er := tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
+			_=er
+			reinicializaDragonrise(numTarjeta) // Internamente hace intentos cada 2s
+		} else {
+			tipoSensor=int8(buffer[6]&(0xFF^0x80))
+			posicion = buffer[7]
+			valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
 		
-		tipoSensor=buffer[6]&(0xFF^0x80)
-		posicion = buffer[7]
-		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-	  
-		er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
-		_=er
-/*			
-		if (er==0 && mqpub!=""){
-*/
-		if (er==0 ){
-		//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
-			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
-			publicar(topic[numTarjeta], string(estado))
+			er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
+			_=er
+	/*			
+			if (er==0 && mqpub!=""){
+	*/
+			if (er==0 ){
+			//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
+				estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
+				publicar(topic[numTarjeta], string(estado))
+			}
 		}
 	}
 }
@@ -474,7 +504,6 @@ func main(){
 
 	for i:=0; i<numTarjetas; i++ {
 		fmt.Fprintf(os.Stderr, "\n %d  %s   %s", i, fDispositivo[i], fEstado[i]) 
-		reinicializaDragonrise(i)
 		/*
 		// se publica el estado inicial
 		if (mqpub!=""){
