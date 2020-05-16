@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v029 - 15 mayo 2020"  // función tratarEvento con parámetro índice de (array), array de array de valores switches/com.  e inicializacion para todas las tarjetas
+	versionFecha = "v030 - 16 mayo 2020"  // función reinicializarDragonrise(device)
 	bufferSize =8 //numero de bytes de buffer de lectura
 	statusFileNameDefault = "js0.dat" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -56,10 +56,18 @@ type dragonrise struct{
 
 //variables globales
 var (
-	switches [maxTarjetas][maxSwt]int16     	// array de interruptores
-	conmutadores [maxTarjetas][maxCom]int16 	// array de ejes/conmutadores
+	switches [maxTarjetas][maxSwt]int16     // array de interruptores
+	conmutadores [maxTarjetas][maxCom]int16 // array de ejes/conmutadores
 	tarjeta [maxTarjetas]dragonrise			// array de estructuras de ultimo evento y estados	
-	fs *os.File  				//handle de fichero de estado
+	
+	fDispositivo [maxTarjetas]string 	//nombre de fichero de dispositivo
+	hDispositivo [maxTarjetas]*os.File 	//handle de fichero de dispositivo
+	fEstado [maxTarjetas]string 		//nombre de fichero de estado
+	hEstado [maxTarjetas]*os.File 		//handle de fichero de estado
+	
+	//TODO retirar sustituir por array
+	fs *os.File  							//handle de fichero de estado
+
 )
 
 //variables globales de MQTT
@@ -253,13 +261,100 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor byte, numSensor b
 		salida, _ := json.Marshal(&tarjeta[numTarjeta])
 		fmt.Printf("\n%s", string(salida))	//Sale por stdout, no por stderr
 		//TODO: Tratar errores
-		fs.Truncate(0)
-		fs.Seek(0,0)
-		fs.Write([]byte(salida))
-		fs.Sync()
+		hEstado[numTarjeta].Truncate(0)
+		hEstado[numTarjeta].Seek(0,0)
+		hEstado[numTarjeta].Write([]byte(salida))
+		hEstado[numTarjeta].Sync()
 	}
 	return 0
 }
+
+
+func reinicializaDragonrise(filedevice string) {
+	var err error
+	nDisp:=0
+	fDispositivo[nDisp]=filedevice
+	device:=fDispositivo[nDisp]
+			
+	pintadoError1:=false
+	pintadoError2:=false
+	pintadoError3:=false
+	
+	fmt.Fprintf(os.Stderr, "\nAbriendo dispositivo %s.", device)
+	inicio:
+	hDispositivo[nDisp].Close()
+	hDispositivo[nDisp]=nil
+	for hDispositivo[nDisp]==nil  {
+		hDispositivo[nDisp], err = os.Open(device)
+		if !pintadoError1==false {
+			fmt.Fprintf(os.Stderr, "\nNo se puede abrir dispositivo %s . Reintentado en silencio cada 2s ...", device)
+			pintadoError1=true
+		}
+		_=err //para evitar error de no uso
+		time.Sleep(2 * time.Second)  //espera para reintento
+	}
+	
+	fEstado[nDisp] = statusFilePath + filepath.Base(filedevice)+ ".dat"
+	
+	hEstado[nDisp].Close()
+	hEstado[nDisp]=nil
+	fmt.Fprintf(os.Stderr,"\nCreando fichero de estado %s", fEstado[nDisp])
+	os.Mkdir(statusFilePath, 0755)
+	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de estado de interruptores %s", fEstado[nDisp])	
+	hEstado[nDisp], err = os.OpenFile(fEstado[nDisp], os.O_RDWR | os.O_CREATE, 0755) //hEstado[] está declarada a nivel global 
+	if err!=nil {
+		if !pintadoError2 {
+			fmt.Fprintf(os.Stderr, "\nError abriendo fichero de estado de interruptores %s. Reintentando en silencio ...", fEstado[nDisp])	
+			pintadoError2=true
+		}
+		goto inicio
+	}
+
+	/*
+	El controlador joystick /dev/input/js0 tras la apertura del fichero de dispositivo devuelve en orden "eventos sintéticos" (no reales)
+	de cada interruptor o eje/conmutador para informar de su estado actual. En el caso de dragonrise primero genera 
+	12 eventos para los 12 interuptores y despues 7 eventos para eventos de los	ejes/conmutadores.
+	Tras eso las lecturas al dispositivos estaran bloqueadas en espera de eventos reales.
+	*/
+
+	leidos:=0
+	buffer:= make([]byte, 8)
+    for nSwt:=0 ; nSwt<maxSwt; nSwt++ {
+		leidos, err = hDispositivo[nDisp].Read(buffer)
+		if (err!=nil || leidos!=8 || buffer[6]!=0x81 ){
+			if !pintadoError3 {
+				fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
+				pintadoError2=true
+			}			
+			goto inicio
+		}
+		tipoSensor:=buffer[6]&(0xFF^0x80)
+		posicion := buffer[7]
+		valor := int16(binary.LittleEndian.Uint16(buffer[4:6]))
+	   	tratarEvento(nDisp, false, tipoSensor, posicion ,valor)
+	}
+	for nCom:=0 ; nCom<maxCom; nCom++ {
+		leidos, err = hDispositivo[nDisp].Read(buffer)
+		if (err!=nil || leidos!=8 || buffer[6]!=0x82 ){
+			if !pintadoError3 {
+				fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
+				pintadoError2=true
+			}			
+			goto inicio
+		}
+		tipoSensor:=buffer[6]&(0xFF^0x80)
+		posicion := buffer[7]
+		valor := int16(binary.LittleEndian.Uint16(buffer[4:6]))
+		tratarEvento(nDisp, false, tipoSensor, posicion ,valor)
+	}
+	
+	// terminada la inicializacion. Se solicita la salida del estado inicial evento con eventoreal=false y tipo sensor=0 
+	// arreglar control errores tratarEvento()
+	er:=tratarEvento(nDisp,false,0,0,0)
+	_=er
+	fmt.Fprintf(os.Stderr, "\nReinicializada dragonrise en %s", device)
+}
+
 
 func main(){
 	fmt.Fprintf(os.Stderr,"stderr: dragonrise %s  autor:junav (junav2@hotmail.com)", versionFecha)
@@ -312,62 +407,31 @@ func main(){
 		os.Exit(0)
 	}
 
+	//For de inicailizacion de punteros a array de switches y conmutadores todas las tarjetas
+	for i:=0; i<maxTarjetas; i++{
+		tarjeta[i].Swt=switches[i][:maxSwt]
+		tarjeta[i].Com=conmutadores[i][:maxCom]
+	} 
+
+	numTarjeta:=0
 
 	buffer:= make([]byte, bufferSize)
 	var device string
 	var statusFileName string
 
 	
-	// lo que hay detras de las opciones en la linea de comando ...
+	// lo que hay detras de las opciones en la linea de comando son los dispositivos
+	//TODO for para todos los dispositivos
 	if flag.Arg(0)=="" {
         device="/dev/input/js0"
-		statusFileName=statusFileNameDefault	
+		statusFileName=statusFileNameDefault
     } else{
 		device=flag.Arg(0);
 		statusFileName=filepath.Base(flag.Arg(0))+ ".dat"	
 	}
 
-	leidos:=0
 	
-	var tipoSensor byte
-	var posicion byte
-	var valor int16
 
-	//For de inicailizacion de punteros a array de switeche y conmutadores todas las tarjetas
-    for i:=0; i<maxTarjetas; i++{
-		tarjeta[i].Swt=switches[i][:maxSwt]
-		tarjeta[i].Com=conmutadores[i][:maxCom]
-	} 
-	
-	numTarjeta:=1
-
-
-
-	
-	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de dispositivo %s", device)
-	f, err := os.Open(device)
-	if err!=nil{
-		check(err)
-	} 
-	
-	defer f.Close() 
-	
-	fmt.Fprintf(os.Stderr, "\nAbriendo fichero de estado de interruptores %s", statusFilePath + statusFileName)	
-	fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR, 0755) //fs está declarada a nivel global para que pueda acceder la funcion tratarEvento()
-	if os.IsPermission(err){
-		check(err)
-	}
-	if os.IsNotExist(err){
-		fmt.Fprintf(os.Stderr,"\nCreando fichero de estado %s", statusFilePath + statusFileName)
-		fmt.Fprintf(os.Stderr, "\n%s", err)
-		err:=os.Mkdir(statusFilePath, 0755)
-		fmt.Fprintf(os.Stderr, "\n%s", err)
-		fs, err = os.OpenFile(statusFilePath + statusFileName, os.O_RDWR|os.O_CREATE, 0755)
-		check(err)
-	}
-	defer fs.Close()
-
-	
 	if (mqpub!="") {
 		if *pOpcionCbc == true {
 			verificarCertificadoBroker=true
@@ -388,75 +452,29 @@ func main(){
 	}
 
 	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
-	
-	/*
-	El controlador joystick /dev/input/js0 tras la apertura del fichero de dispositivo devuelve en orden "eventos sintéticos" (no reales)
-	de cada interruptor o eje/conmutador para informar de su estado actual. En el caso de dragonrise primero genera 
-	12 eventos para los 12 interuptores y despues 7 eventos para eventos de los	ejes/conmutadores.
-	Tras eso las lecturas al dispositivos estaran bloqueadas en espera de eventos reales.
-	*/
 
-    for nSwt:=0 ; nSwt<maxSwt; nSwt++ {
-		leidos, err = f.Read(buffer)
-		check(err)
-		if leidos!=8{
-		// error de inicializacion
-			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
-			os.Exit(0)
-		}
-		
-		if buffer[6]!=0x81 {
-			// error de inicializacion
-			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
-			os.Exit(0)
-		}
-		
-		tipoSensor=buffer[6]&(0xFF^0x80)
-		posicion = buffer[7]
-		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
+	
+	reinicializaDragonrise(device)
 
-	   
-		tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
-	}
-		
-	for nCom:=0 ; nCom<maxCom; nCom++ {
-		leidos, err = f.Read(buffer)
-		check(err)
-		if leidos!=8{
-		// error de inicializacion
-			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
-			os.Exit(0)
-		}
-		
-		if buffer[6]!=0x82 {
-			// error de inicializacion
-			fmt.Fprintf(os.Stderr, "\nError de inicializacion switches")
-			os.Exit(0)
-		}
-		
-		tipoSensor=buffer[6]&(0xFF^0x80)
-		posicion = buffer[7]
-		valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		
-		 
-		tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
-	}
 	
-	// terminada la inicializacion. Se solicita la salida del estado inicial evento con eventoreal=false y tipo sensor=0 
-	
-	er:=tratarEvento(numTarjeta,false,0,0,0)
 	// se publica el estado inicial
-	if (er==0 && mqpub!=""){
+	if (mqpub!=""){
 		//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
-		estado, _ := ioutil.ReadFile(statusFilePath + statusFileName)
+		estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
 		//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
-		time.Sleep(2 * time.Second)
+		//time.Sleep(1 * time.Second)
+		fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic, string(estado))
 		publicar(topic, string(estado))
 	}
 
 	// 	A la escucha de eventos ....
+
+	var tipoSensor byte
+	var posicion byte
+	var valor int16
+
 	for {
-		leidos, err := f.Read(buffer)
+		leidos, err := hDispositivo[numTarjeta].Read(buffer)
 		check(err)
 		if leidos!=8{
 			fmt.Fprintf(os.Stderr, "\nError: Lectura de evento con menos de 8bytes")
