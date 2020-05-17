@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v033 - 16 mayo 2020"  // Arreglo falsos eventos desconexion/conexion USB. JSON para publicar error de desconexion del dispositivo USB
+	versionFecha = "v034 - 17 mayo 2020"  // una gouroutine para lectura de cada fichero de dispositivo. Un cliente MQTT para cada tarjeta/device y broker
 	bufferSize =8 //numero de bytes de buffer de lectura
 	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -35,14 +35,14 @@ const(
 
 // constantes de mqtt
 const (
-	maxNumberOfBroquers = 6
+	maxBrokers = 6
 	sufijoFinalTopic="event"
-	lwtMensaje="{\"time\":0,\"event\":{\"type\":-1,\"sensor\":0,\"value\":0}}" // mensaje Last Will que emitirá el broker cuando el publicador se desconecta inexperadamente
 )
+	
 
 //definicion de tipos
 type evento struct{
-	TipoSensor int8 	`json:"type"`
+	TipoSensor int8 	`json:"type"`   //originalmente era de tipo byte. Se cambió a int8 para permitir valor "-1" que indica error
 	NumSensor byte 	    `json:"sensor"`
 	ValorSensor int16	`json:"value"`
 }
@@ -55,17 +55,24 @@ type dragonrise struct{
 	Com []int16   		`json:"axes"`// estado actual de ejes/conmutadores
 }
 
+
+type eventoError struct{
+	TipoSensor int8 	`json:"type"`   //originalmente era de tipo byte. Se cambió a int8 para permitir valor "-1" que indica error de tarjeta o del cliente MQTT
+	Razon string		`json:"reason"`
+}
+
 type dragonriseError struct{
 	Tiempo int64 		`json:"time"`
 	Dispositivo string	`json:"device"`
-	Evento evento   	`json:"event"`// último evento registrado
+	Evento eventoError 	`json:"event"`// último evento registrado
 }
 
 //variables globales
 var (
+	tarjeta [maxTarjetas]dragonrise			// array de estructuras de ultimo evento y estados
 	switches [maxTarjetas][maxSwt]int16     // array de interruptores
 	conmutadores [maxTarjetas][maxCom]int16 // array de ejes/conmutadores
-	tarjeta [maxTarjetas]dragonrise			// array de estructuras de ultimo evento y estados	
+		
 	
 	fDispositivo [maxTarjetas]string 	//nombre de fichero de dispositivo
 	hDispositivo [maxTarjetas]*os.File 	//handle de fichero de dispositivo
@@ -76,20 +83,19 @@ var (
 
 //variables globales de MQTT
 var (
-	broker = [maxNumberOfBroquers]string{ 
+	broker = [maxBrokers]string{ 
 	//	"tcp://broker.hivemq.com:1883",
 	//	"ws://test.mosquitto.org:8080", 
 	//	"tcp://mqtt.eclipse.org:1883",
 	//	"tcp://broker.emqx.io:1883",
 	//	"wss://mqttws.vigilanet.com:443"
 	}
-		
-	cliente  [len(broker)]mqtt.Client
-	opcionesCliente [len(broker)]*mqtt.ClientOptions
-	// esta condición es para todos los clientes
-	verificarCertificadoBroker = false
-	numClientes  int
-	topic [maxTarjetas]string  // habra tantos topics como tarjetas/devices Se ajusta el array al máximo
+	numBrokers int
+	opcionesCliente [maxTarjetas][maxBrokers]*mqtt.ClientOptions
+	cliente  [maxTarjetas][maxBrokers]mqtt.Client
+	topic [maxTarjetas]string  // Cada cliente tiene una topic por tarjeta. Misma topic para cada broker.
+	numClientes  int 
+	verificarCertificadoBroker = false 		// TODO de momento esta condición es para todos los clientes. En futuro condiciones TLS para cada cliente
 )
 
 func onConnectHandler(c mqtt.Client){
@@ -105,31 +111,37 @@ func onConnectHandler(c mqtt.Client){
 
 func onConnetionLostHandler(c mqtt.Client, er error ){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Fprintf(os.Stderr,"\nconexión perdida. err: ",lectorOpcionesCliente.Servers()[0] , er)
+	fmt.Fprintf(os.Stderr,"\nconexión perdida. err: %s  %v",lectorOpcionesCliente.Servers()[0] , er)
 }
 
 func onReconnectingHandler(c mqtt.Client, co *mqtt.ClientOptions){
 	fmt.Fprintf(os.Stderr,"\n¡¡ inicio reconexión ... !! ")
 }
 
-// Conecta con broker con protocolo y puyerto indicado el la url. 
+// Crea un cliente para la numTarjeta y el numBroker especificado 
+// Conecta con broker con protocolo y puerto indicado en la urlBroker. 
 // En la URL se puede especificar el usuario y contraseña
 // TODO: Permite especificar varias URLs para diferentes servidores y protocolos para HA pero usuario contraseña han de ser el mismo. 
-func inicioConexion(urlBroker ...string){
-	if numClientes>=len(broker){
-		return 
-	} 
-	numCliente:=numClientes
-	opcionesCliente[numCliente] = mqtt.NewClientOptions()
+
+func inicioConexion(numTarjeta int, numBroker int, urlBroker string){
+	
+	//TODO retirar
+	//numCliente:=numClientes
+
+	opcionesCliente[numTarjeta][numBroker] = mqtt.NewClientOptions()
 
 	urlMqttBroker:=""
 	usuario:=string("")
 	password:=string("") 	
+
+/*	
+	//Caso de que es use una funcion variadic para varias URL
+
 	for _, v:= range urlBroker{
 		//se aisla usuario/password de la url
 		uri, _ := url.Parse(v)
 		urlMqttBroker = fmt.Sprintf("%s://%s", uri.Scheme, uri.Host)
-		opcionesCliente[numCliente].AddBroker(urlMqttBroker)
+		opcionesCliente[numTarjeta][numBroker].AddBroker(urlMqttBroker)
 		//TODO controlar que si se pasan 2 o mas URL el usuario y password coinciden
 		pUsuariopassword:=uri.User
 		if pUsuariopassword != nil {
@@ -137,6 +149,19 @@ func inicioConexion(urlBroker ...string){
 			password, _=(*pUsuariopassword).Password()
 		}
 	}
+*/
+
+		uri, _ := url.Parse(urlBroker)
+		urlMqttBroker = fmt.Sprintf("%s://%s", uri.Scheme, uri.Host)
+		opcionesCliente[numTarjeta][numBroker].AddBroker(urlMqttBroker)
+		//TODO controlar que si se pasan 2 o mas URL el usuario y password coinciden
+		pUsuariopassword:=uri.User
+		if pUsuariopassword != nil {
+			usuario=(*pUsuariopassword).Username()
+			password, _=(*pUsuariopassword).Password()
+		}
+
+
 
 	//Obtención de un clientID para cliente MQQT activo
 	// No pueden conectarse al broker dos cliente con mismo ClientID
@@ -145,8 +170,8 @@ func inicioConexion(urlBroker ...string){
 
 	// se obtienen todas las MACs del dispositivo
 	macs, _:=getMacAddr() 
-	// Se pone como preClientID la primera MAC - seguido del fichero de dispositivo - seguido numero de cliente. 
-	preClientID = (macs[0] + filepath.Base(flag.Arg(0)) + string(numCliente)) 	
+	// Se pone como preClientID la primera MAC - seguido del fichero de dispositivo - seguido numero de broker. 
+	preClientID = (macs[0] + filepath.Base(fDispositivo[numTarjeta]) + string(numBroker)) 	
 	// clientID es el hash-MD5 de preClientID truncado a 10caracterews hexadecimales
 	clientID = fmt.Sprintf("%x", md5.Sum([]byte(preClientID)))[0:10]
 	
@@ -154,7 +179,7 @@ func inicioConexion(urlBroker ...string){
 	//Si se pasa un clinteID con cero caracteres el broker le asigna uno aleatorio interno que no comunica al propio cliente
 	//Esto puede tener limitaciones.  
 	//clientID=""
-	opcionesCliente[numCliente].
+	opcionesCliente[numTarjeta][numBroker].
 		SetUsername(usuario).
 		SetPassword(password).	
 		SetClientID(clientID).
@@ -163,8 +188,7 @@ func inicioConexion(urlBroker ...string){
 		SetConnectRetryInterval(30 * time.Second).
 		SetKeepAlive(30 * time.Second).
 		SetPingTimeout(5 * time.Second).
-		//TODO arreglar lwt topic no puede llevar wildcards 
-		SetWill(topic[0],lwtMensaje, 0, true).
+		SetWill(topic[numTarjeta],generaMensajeLWT(numTarjeta), 0, true). //mensaje Last Will que emitirá el broker cuando el publicador se desconecta inexperadamente
 		SetOnConnectHandler(onConnectHandler).	
 		SetConnectionLostHandler(onConnetionLostHandler).
 		SetReconnectingHandler(onReconnectingHandler)
@@ -172,26 +196,26 @@ func inicioConexion(urlBroker ...string){
 		// No verifica certificado de l broker en tls y wss
 		// Salvo que se especifique opcion -cbc, se ajusta la configuracion TLS para que no se verifique el certificado que presente el broker
 		if verificarCertificadoBroker == false {
-			opcionesCliente[numCliente].SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
+			opcionesCliente[numTarjeta][numBroker].SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
 		}
-
-	cliente[numCliente] = mqtt.NewClient(opcionesCliente[numCliente])
-	numClientes++
+	cliente[numTarjeta][numBroker] = mqtt.NewClient(opcionesCliente[numTarjeta][numBroker])
+	
+	
 	//conexion inicial asíncrona una vez establecidos los clientes mediante función anónima
-	go func (numCliente int){
-		fmt.Fprintf(os.Stderr,"\nConexión inicial ...")
-		if token := cliente[numCliente].Connect(); token.Wait() && token.Error() != nil {
-			fmt.Fprintf(os.Stderr,"\nError de conexión inicial:", token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
+	go func (numTarjeta int, numBroker int){
+		fmt.Fprintf(os.Stderr,"\nConexión inicial cliente tarjeta %s broker %s...", fDispositivo[numTarjeta], broker[numBroker])
+		if token := cliente[numTarjeta][numBroker].Connect(); token.Wait() && token.Error() != nil {
+			fmt.Fprintf(os.Stderr,"\nError de conexión inicial cliente tarjeta %s broker %s... :", fDispositivo[numTarjeta], broker[numBroker],token.Error())  //Nunca pasa por aquí si ConnectRetry en opciones de cliente esta a True 
 		} 
-	}(numCliente)
+	}(numTarjeta, numBroker)
 }
 
 // publica en brokers a través de todos los clientes activos
 
-func publicar(topic string, carga string){
-	for i:=0; i<numClientes; i++{
-		if cliente[i].IsConnectionOpen(){
-			cliente[i].Publish(topic, 0, true, carga) // se publica con qos=0 y retention=true
+func publicar(numTarjeta int, topic string, carga string){
+	for i:=0; i<numBrokers; i++{
+		if cliente[numTarjeta][i].IsConnectionOpen(){
+			cliente[numTarjeta][i].Publish(topic, 0, true, carga) // se publica con qos=0 y retention=true
 			fmt.Fprintf(os.Stderr," ok->%d",i)
 		} else{
 			fmt.Fprintf(os.Stderr," ko->%d",i)
@@ -228,6 +252,17 @@ func getMacAddr() ([]string, error) {
         }
     }
     return as, nil
+}
+
+// Genera mensaje Last Will que emitirá el broker cuando el publicador se desconecta inexperadamente
+func generaMensajeLWT(numTarjeta int) (string){
+	var tarjetaError dragonriseError
+	tarjetaError.Evento.TipoSensor = -1
+	tarjetaError.Evento.Razon = "Mensaje LWT emitido por broker. No disponible cliente MQTT que publica eventos este dispositivo" 
+	tarjetaError.Dispositivo = filepath.Base(fDispositivo[numTarjeta])
+	tarjetaError.Tiempo = 0
+	salida, _ := json.Marshal(&tarjetaError)
+	return (string(salida))	
 }
 
 /*  
@@ -273,8 +308,7 @@ func tratarEvento (numTarjeta int, eventoReal bool, tipoSensor int8, numSensor b
 	if tipoSensor == -1{
 		var tarjetaError dragonriseError
 		tarjetaError.Evento.TipoSensor = tipoSensor
-		tarjetaError.Evento.NumSensor = 0
-		tarjetaError.Evento.ValorSensor = 0 
+		tarjetaError.Evento.Razon = "Dispositivo dejó de estar disponible"
 		tarjetaError.Dispositivo = filepath.Base(fDispositivo[numTarjeta])
 		tarjetaError.Tiempo = time.Now().Unix()  // --> evento real
 		salida, _ := json.Marshal(&tarjetaError)
@@ -370,6 +404,16 @@ func reinicializaDragonrise(nDisp int) {
 	er:=tratarEvento(nDisp,false,0,0,0)
 	_=er
 	fmt.Fprintf(os.Stderr, "\nReinicializada dragonrise en %s", device)
+
+	// En su caso, se publica el estado inicial
+	// TODO controlar la condición de publicación
+	
+		//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
+		estado, _ := ioutil.ReadFile(fEstado[nDisp])
+		//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
+		time.Sleep(1 * time.Second)
+		fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic[nDisp], string(estado))
+		publicar(nDisp, topic[nDisp], string(estado))
 }
 
 
@@ -387,22 +431,21 @@ func leerDevice(numTarjeta int){
 			posicion = 0
 			valor = 0
 			er := tratarEvento(numTarjeta, false, tipoSensor, posicion ,valor)
-			_=er
+			if (er==0 ){
+				//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
+				estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
+				publicar(numTarjeta, topic[numTarjeta], string(estado))
+			}
 			reinicializaDragonrise(numTarjeta) // Internamente hace intentos cada 2s
 		} else {
 			tipoSensor=int8(buffer[6]&(0xFF^0x80))
 			posicion = buffer[7]
 			valor = int16(binary.LittleEndian.Uint16(buffer[4:6]))
-		
 			er := tratarEvento(numTarjeta, true, tipoSensor, posicion ,valor)
-			_=er
-	/*			
-			if (er==0 && mqpub!=""){
-	*/
 			if (er==0 ){
 			//Publicacion de evento desde el propio fichero de estado si se tiene mqpub
 				estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
-				publicar(topic[numTarjeta], string(estado))
+				publicar(numTarjeta, topic[numTarjeta], string(estado))
 			}
 		}
 	}
@@ -459,7 +502,7 @@ func main(){
 		os.Exit(0)
 	}
 
-	//For de inicailizacion de punteros a array de switches y conmutadores todas las tarjetas
+	//bucle de inicializacion de punteros a array de switches y conmutadores todas las tarjetas
 	for i:=0; i<maxTarjetas; i++{
 		tarjeta[i].Swt=switches[i][:maxSwt]
 		tarjeta[i].Com=conmutadores[i][:maxCom]
@@ -470,55 +513,55 @@ func main(){
 	numTarjetas=1
 	fDispositivo[0] = nombreFicheroDispositivoOmision
 	fEstado[0]= statusFilePath + filepath.Base(fDispositivo[0]) + statusFileExt
-	//  Se carga en los arrays los nombres de ficheros de dispositivos y de estado
+	//  Se carga en los arrays los nombres de ficheros de dispositivos y de estado y los topics
 	for i:=0; flag.Arg(i)!=""; i++ {
 		fDispositivo[i] = flag.Arg(i)
 		fEstado[i] = statusFilePath + filepath.Base(fDispositivo[i]) + statusFileExt
+		topic[i] = devuelveTopic(mqpub,fDispositivo[i])
 		numTarjetas = i + 1
 	}
 
-
-	
+	numBrokers=0
 	if (mqpub!="") {
+		broker[0]=mqpub
+		numBrokers++;
 		if *pOpcionCbc == true {
 			verificarCertificadoBroker=true
 		} else{
 			verificarCertificadoBroker=false
 		}
-		//TODO Inicializar todos los topics
-		topic[0]=devuelveTopic(mqpub,fDispositivo[0]);
-		
-		inicioConexion(mqpub)
 		if (mqpub2!="") {
-			inicioConexion(mqpub2)
+			broker[1]=mqpub2
+			numBrokers++
+			numBrokers++
 			if (mqpub3!=""){
-				inicioConexion(mqpub3)
+				broker[2]=mqpub3
+				numBrokers++
+				numBrokers++
 			}
 		}	
 
+		//se lanzan los clientes mqtt 
+		for i:=0; i<numTarjetas; i++{
+			for j:=0; j<numBrokers; j++{
+				//fmt.Fprintf(os.Stderr, "\ndevice %d = %s broker %d = %s", i, fDispositivo[i], j, broker[j])
+				inicioConexion(i,j,broker[j])
+			}
+		}	
 	} else{
 		fmt.Fprintf(os.Stderr, "\n%s", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
 
+	//TODO Retirar
 	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
 
 	for i:=0; i<numTarjetas; i++ {
 		fmt.Fprintf(os.Stderr, "\n %d  %s   %s", i, fDispositivo[i], fEstado[i]) 
-		/*
-		// se publica el estado inicial
-		if (mqpub!=""){
-			//Publicacion de estado tras apertura de la tarjeta desde el propio fichero de estado si se tiene mqpub
-			estado, _ := ioutil.ReadFile(fEstado[numTarjeta])
-			//TODO urg Retirar delay cuando se sincronice con goroutine que comunique la conexión. Evitar el delay
-			//time.Sleep(1 * time.Second)
-			fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic[numTarjeta], string(estado))
-			publicar(topic[numTarjeta], string(estado))
-		}
-		*/		
 		go leerDevice(i)		
 	}
 	fmt.Fprintf(os.Stderr, "\n")
 	
+	// se detiene la goroutine principal
 	select {
 	}
 }
