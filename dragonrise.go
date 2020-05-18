@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v035 - 18 mayo 2020"  // Actualizacion de informacion de ayuda
+	versionFecha = "v036 - 18 mayo 2020 - Release Candidate 1"
 	bufferSize =8 //numero de bytes de buffer de lectura
 	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -104,24 +104,37 @@ func onConnectHandler(c mqtt.Client){
 		fmt.Fprintf(os.Stderr,"%s",v) 
 		fmt.Fprintf(os.Stderr," ")
 	}
+	var tarjetaCliente int
+	var brokerCliente int
 	fmt.Fprintf(os.Stderr," con clientID %s", lectorOpcionesCliente.ClientID())
+	for i:=0; i<numTarjetas; i++{
+		for j:=0; j<numBrokers; j++{
+			cl:=cliente[i][j]
+			cor:=cl.OptionsReader()	
+			//Para debug
+			//fmt.Fprintf(os.Stderr, "\n %v",  cor.ClientID())         
+			if  lectorOpcionesCliente.ClientID() ==   cor.ClientID() {
+				tarjetaCliente=i
+				brokerCliente=j
+			}
+		}	
+	}
+	fmt.Fprintf(os.Stderr,"\nEl clientID %s corresponte a la tarjeta %d y al broker %d", lectorOpcionesCliente.ClientID(), tarjetaCliente, brokerCliente)
+
 	//TODO Descubrir a que server se ha conectado si se ha metido más de uno con AddBroker
 
-	//TODO Publicacion de estado tras conexion desde el fichero de estado ¿qué cliente? ¿Qué tarjeta?
-	/*
-	estado, _ := ioutil.ReadFile(fEstado[nDisp])
-	fmt.Fprintf(os.Stderr, "\nPublicando %s   %s", topic[nDisp], string(estado))
-	publicar(nDisp, topic[nDisp], string(estado))
-	*/
+	estado, _ := ioutil.ReadFile(fEstado[tarjetaCliente])
+	fmt.Fprintf(os.Stderr, "\nPublicando en topic %s broker %s mensaje %s", topic[tarjetaCliente], broker[brokerCliente], string(estado))
+	cliente[tarjetaCliente][brokerCliente].Publish(topic[tarjetaCliente], 0, true, string(estado))
 }
 
 func onConnetionLostHandler(c mqtt.Client, er error ){
 	lectorOpcionesCliente:=c.OptionsReader()
-	fmt.Fprintf(os.Stderr,"\nconexión perdida. err: %s  %v",lectorOpcionesCliente.Servers()[0] , er)
+	fmt.Fprintf(os.Stderr,"\nConexión perdida. err: %s  %v",lectorOpcionesCliente.Servers()[0] , er)
 }
 
 func onReconnectingHandler(c mqtt.Client, co *mqtt.ClientOptions){
-	fmt.Fprintf(os.Stderr,"\n¡¡ inicio reconexión ... !! ")
+	//fmt.Fprintf(os.Stderr,"\nIntento reconexión ...  ")
 }
 
 // Crea un cliente para la numTarjeta y el numBroker especificado 
