@@ -41,11 +41,7 @@ const (
 	
 
 //definicion de tipos
-type evento struct{
-	TipoSensor int8 	`json:"type"`   //originalmente era de tipo byte. Se cambió a int8 para permitir valor "-1" que indica error
-	NumSensor byte 	    `json:"sensor"`
-	ValorSensor int16	`json:"value"`
-}
+
 
 type dragonrise struct{
 	Tiempo int64 		`json:"time"`
@@ -55,6 +51,11 @@ type dragonrise struct{
 	Com []int16   		`json:"axes"`// estado actual de ejes/conmutadores
 }
 
+type evento struct{
+	TipoSensor int8 	`json:"type"`   //originalmente era de tipo byte. Se cambió a int8 para permitir valor "-1" que indica error
+	NumSensor byte 	    `json:"sensor"`
+	ValorSensor int16	`json:"value"`
+}
 
 type eventoError struct{
 	TipoSensor int8 	`json:"type"`   //originalmente era de tipo byte. Se cambió a int8 para permitir valor "-1" que indica error de tarjeta o del cliente MQTT
