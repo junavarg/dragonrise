@@ -5,11 +5,11 @@
 # Autor junavarg version 1 11/05/2020 
 
 
-wget https://raw.githubusercontent.com/junavarg/dr/master/31-dragonriseRPi.rules
+wget https://raw.githubusercontent.com/junavarg/dragonrise/master/31-dragonriseRPi.rules
 sudo cp 31-dragonriseRPi.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 
-wget https://raw.githubusercontent.com/junavarg/dr/master/dragonrise.go
+wget https://raw.githubusercontent.com/junavarg/dragonrise/master/dragonrise.go
 go get github.com/eclipse/paho.mqtt.golang 
 go build -ldflags "-s -w" dragonrise.go 
  
