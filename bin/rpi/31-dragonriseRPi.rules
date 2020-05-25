@@ -1,0 +1,33 @@
+# Fichero de reglas UDEV adecuadas pra Raspberry Pi
+# para invocar inicializacion de tarjeta "Generic USB Joystick" de DragonRise el momento de su conexion/detección 
+# Autor Junav version 1 26/04/2020
+# Este fichero debe ubicarse en /etc/udev/rules.d/
+
+# La utilidad 
+# udevadm info -a -n /dev/input/js0
+# reflejará 
+# KERNELS=="1-1.2" para placa dragonrise conectada directamente a puerto USB externo 1 de RPI (2 en el bus) 
+# KERNELS=="1-1.3" para placa dragonrise conectada directamente a puerto USB externo 2 de RPI (3 en el bus)
+# Se hace notar que en una RPi el puerto USB 1 está empleado internamente por la tarjeta de red.
+# 
+# Si se emplea un HUB, en lugar de una conexion directa, el tercer nivel de informacion despues del inicial "KERNEL"  daria 
+# KERNELS=="1-1.3.1" para placa conectada a puerto USB 1 del HUB en puerto USB externo 2 de RPI		
+# KERNELS=="1-1.3.3" para placa conectada a puerto USB 3 del HUB en puerto USB externo 2 de RPI
+
+# En su caso ajustar estas reglas segun sea preciso 
+
+# Deteccion de chip de Dragonrise  idVendor=0079  idProduct=0006 asignando un symlink fijo segun numeracion bus USB, ejecucin de un programa con parametro de numeracion 
+ACTION=="add",  KERNEL=="js*", KERNELS=="1-1.2",   ATTRS{idVendor}=="0079", ATTRS{idProduct}=="0006", SYMLINK+="dragonrise_2"
+ACTION=="add",  KERNEL=="js*", KERNELS=="1-1.3",   ATTRS{idVendor}=="0079", ATTRS{idProduct}=="0006", SYMLINK+="dragonrise_3"
+ACTION=="add",  KERNEL=="js*", KERNELS=="1-1.4",   ATTRS{idVendor}=="0079", ATTRS{idProduct}=="0006", SYMLINK+="dragonrise_4"
+ACTION=="add",  KERNEL=="js*", KERNELS=="1-1.5",   ATTRS{idVendor}=="0079", ATTRS{idProduct}=="0006", SYMLINK+="dragonrise_5"
+
+#Si se quiere ejecutar automaticamente el programa dragonrise (previamente ubicado en /usr/local/bin) se puese hacer aqui. Por ejemplo 
+#ACTION=="add",  KERNEL=="js*", KERNELS=="1-1.5",   ATTRS{idVendor}=="0079", ATTRS{idProduct}=="0006", SYMLINK+="dragonrise_5",  RUN+="/usr/local/bin/dragonrise -mqpub=tcp://host.dominio.dom:1883/topic_base /dev/dragonrise_5"
+
+#Deteccion desenchufe en puerto USB de placa dragonrise y borrado de fichero de estado del programa dragonrise 
+ACTION=="remove", ENV{ID_VENDOR_ID}=="0079", ENV{ID_MODEL_ID}=="0006", ENV{DEVPATH}=="/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.2", RUN+="/bin/rm /var/lib/dragonrise/dragonrise_2.dat"
+ACTION=="remove", ENV{ID_VENDOR_ID}=="0079", ENV{ID_MODEL_ID}=="0006", ENV{DEVPATH}=="/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.3", RUN+="/bin/rm /var/lib/dragonrise/dragonrise_3.dat"
+ACTION=="remove", ENV{ID_VENDOR_ID}=="0079", ENV{ID_MODEL_ID}=="0006", ENV{DEVPATH}=="/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.4", RUN+="/bin/rm /var/lib/dragonrise/dragonrise_4.dat"
+ACTION=="remove", ENV{ID_VENDOR_ID}=="0079", ENV{ID_MODEL_ID}=="0006", ENV{DEVPATH}=="/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.5", RUN+="/bin/rm /var/lib/dragonrise/dragonrise_5.dat"
+
