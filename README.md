@@ -1,3 +1,5 @@
+![alt text](image014.jpg?raw=true "Title")
+
 The dragonrise program allows:
 1) Monitor the status of the 12 switches (and 2 three position switches) of the popular “Generic USB joystick” controller card from DragonRise Inc.
 2) Publish the status of these switches to a server or MQTT broker every time a change occurs in any of them.
