@@ -60,20 +60,20 @@ If device file is not present, program reintent open it every 1 second.
 Status is printed in stdout in JSON, for example:
 Info and errors are printed in stderr.
 
-$ dragonrise /dev/input/js0 /dev/input/js1  2>/dev/null
+<i>$ dragonrise /dev/input/js0 /dev/input/js1  2>/dev/null</i>
 
 Try to read switch status and events from /dev/input/js0 and /dev/input/js1. Program does not show info or errors
 Without the proper UDEV rule there is no way to warrant which USB card correspond to which device file (/dev/input/js0 or /dev/input/js1).
 
-$ dragonrise /dev/dragonrise_3
+<i>$ dragonrise /dev/dragonrise_3</i>
 
 Try to read switch status and events from a USB joystick card connected to USB number 3 (/dev/dragonrise_3) and no other, thanks to a UDEV rule that makes the correct mapping. In a Raspebrry Pi USB 3 corresponds to external USB port number 2 (USB number 1 correspond to ethernet NIC).
 
-$ dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3
+<i>$ dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3</i>
 
 Publish in topic /base_topic/dragon_rise/event of MQTT broquer in url test.mosquito.org using transport tcp in clear with port 1883 (standard)
 
-$ nohup dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3 2>/dev/null 1>/dev/null &
+<i>$ nohup dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3 2>/dev/null 1>/dev/null &</i>
 
 Execution in background (as a daemon).
 System return PID.
