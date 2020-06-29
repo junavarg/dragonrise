@@ -23,7 +23,7 @@ import (
 )
 // constantes
 const(
-	versionFecha = "v1 - 23 mayo 2020 - Build 036"
+	versionFecha = "v1 - 29 junio 2020 - Build 037"
 	bufferSize =8 //numero de bytes de buffer de lectura
 	nombreFicheroDispositivoOmision = "/dev/input/js0" 
 	statusFilePath = "/var/lib/dragonrise/"   
@@ -248,7 +248,18 @@ devuelve topic completo de publicacion formado por los siguientes elementos sepa
 */	
 func devuelveTopic(mqpub string, device string)(topic string) {
 	uri, _ := url.Parse(mqpub)
-	baseTopic:=filepath.Base(uri.Path)
+	// hay que asegurar que no hay "/" al principio ni al final de la string
+	var baseTopic string = ""
+	ini:=0
+	fin:=len(uri.Path)
+	if uri.Path[0]=='/'{
+		ini=1
+	}
+	if uri.Path[fin-1]=='/'{
+		fin=fin-1
+	} 
+	baseTopic=uri.Path[ini:fin]
+
 	deviceFile:=filepath.Base(device)
 	topic=fmt.Sprintf("%s/%s/%s", baseTopic, deviceFile, sufijoFinalTopic)
 	return topic
@@ -411,14 +422,14 @@ func reinicializaDragonrise(nDisp int) {
 	pintadoError2:=false
 	pintadoError3:=false
 	
-	fmt.Fprintf(os.Stderr, "\nAbriendo dispositivo %s.", device)
+	//fmt.Fprintf(os.Stderr, "\nAbriendo dispositivo %s.", device)
 	inicio:
 	hDispositivo[nDisp].Close()
 	hDispositivo[nDisp]=nil
 	for hDispositivo[nDisp]==nil  {
 		hDispositivo[nDisp], err = os.Open(device)
 		if !pintadoError1{
-			fmt.Fprintf(os.Stderr, "\nNo se puede abrir dispositivo %s . Reintentado en silencio cada 2s ...", device)
+			fmt.Fprintf(os.Stderr, "\n(Re)intentado abrir dispositivo %s en silencio cada 2s ...", device)
 			pintadoError1=true
 		}
 		_=err //para evitar error de no uso
@@ -628,10 +639,7 @@ func main(){
 	} else{
 		fmt.Fprintf(os.Stderr, "\n%s", "No se ha especificado opción -mqpub. No se publicarán mensajes MQTT")
 	}
-
-	//TODO Retirar
-	fmt.Fprintf(os.Stderr, "\nLista de interruptores y ejes/conmutadores con sus estados/valores actuales")
-
+	
 	for i:=0; i<numTarjetas; i++ {
 		fmt.Fprintf(os.Stderr, "\n %d  %s   %s", i, fDispositivo[i], fEstado[i]) 
 		go leerDevice(i)		
