@@ -51,7 +51,7 @@ The messages are published in 'clean session' with qos 0 and with 'retained flag
 
 <h2>Examples</h2>
 
-$ dragonrise
+<i>$ dragonrise</i>
 
 Try to read switch status and events from a USB joystick card in /dev/input/js0 (default).
 In a Raspberry Pi, /dev/input/js0 normally will correspond to the first USB joystick card conected to any USB port.
