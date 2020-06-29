@@ -1,7 +1,7 @@
 ![alt text](image014.jpg?raw=true "Title")
 <h1>Introduction</h1>
 The dragonrise program allows:
-<li>Monitor the status of the 12 switches (and 2 three position switches) of the popular “Generic USB joystick” controller card from DragonRise Inc.</li>
+<li>Monitor and returns by stdout a JSON structure with the status of the 12 switches (and 2 three position switches) of the popular “Generic USB joystick” controller card from DragonRise Inc.</li>
 <li>Publish the status of these switches to a server or MQTT broker every time a change occurs in any of them.</li>
 
 It is written in Golang so it is a direct executable on the processor (it does not require a runtime) and it can work in the background as a daemon or service. 
@@ -30,3 +30,51 @@ Download and execute the install script
 <p>$ sudo apt-get install golang
 <p>$ wget -O - https://raw.githubusercontent.com/junavarg/dragonrise/master/install-from-sources.sh | sudo bash
 
+<h1>Use</h1>
+Execution en foreground
+Use: dragonrise [options] [device_file1] [device_file2]… ")
+Options:
+  -mqpub <url>
+    Specify the MQTT broker URL and the root of a topic (basetopic) where to post the status every time an event occurs. The url format is
+    protocol://[user[:password]@]host.domain.tld:port/base_topic
+    Options for protocol: tcp, ssl, ws, wss
+    Examples:
+      -mqpub = tcp://host.domain.dom:1883/base_topic
+      -mqpub = ssl://pepe@host.domain.dom:8883/base_topic
+      -mqpub = ws://host.domain.dom:80/base_topic
+      -mqpub = wss://pepe:p2ssw0d@host.domain.dom:443/base_topic
+  
+  -mqpub2 <url>
+  -mqpub3 <url>
+    Two additional brokers to which the program sends events
+  
+The messages are published in 'clean session' with qos 0 and with 'retained flag' so that on each new connection the subscriber receives a message with the current status.
+
+
+<h2>Examples</h2>
+$ dragonrise
+
+Try to read switch status and events from a USB joystick card in /dev/input/js0 (default).
+In a Raspberry Pi, /dev/input/js0 normally will correspond to the first USB joystick card conected to any USB port.
+Program is alwais running until is killed (e.g., with ctrl-c).
+If device file is not present, program reintent open it every 1 second.
+Status is printed in stdout in JSON, for example:
+Info and errors are printed in stderr.
+
+$ dragonrise /dev/input/js0 /dev/input/js1  2>/dev/null
+
+Try to read switch status and events from /dev/input/js0 and /dev/input/js1. Program does not show info or errors
+Without the proper UDEV rule there is no way to warrant which USB card correspond to which device file (/dev/input/js0 or /dev/input/js1).
+
+$ dragonrise /dev/dragonrise_3
+
+Try to read switch status and events from a USB joystick card connected to USB number 3 (/dev/dragonrise_3) and no other, thanks to a UDEV rule that makes the correct mapping. In a Raspebrry Pi USB 3 corresponds to external USB port number 2 (USB number 1 correspond to ethernet NIC).
+
+$ dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3
+
+Publish in topic /base_topic/dragon_rise/event of MQTT broquer in url test.mosquito.org using transport tcp in clear with port 1883 (standard)
+
+$ nohup dragonrise -mqpub=tcp://test.mosquitto.org:1883/base_topic /dev/dragonrise_3 2>/dev/null 1>/dev/null &
+
+Execution in background (as a daemon).
+System return PID.
