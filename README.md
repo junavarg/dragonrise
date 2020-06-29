@@ -31,21 +31,21 @@ Download and execute the install script
 <p>$ wget -O - https://raw.githubusercontent.com/junavarg/dragonrise/master/install-from-sources.sh | sudo bash
 
 <h1>Use</h1>
-<p>Use: dragonrise [options] [device_file1] [device_file2]… ")
+<p>Use: dragonrise [options] [device_file1] [device_file2]… 
 <p>Options:
-<p>  -mqpub <url>
-<p>   Specify the MQTT broker URL and the root of a topic (basetopic) where to post the status every time an event occurs. The url format is
-<p>   protocol://[user[:password]@]host.domain.tld:port/base_topic
-<p>    Options for protocol: tcp, ssl, ws, wss
-<p>    Examples:
-<p>     -mqpub = tcp://host.domain.dom:1883/base_topic
-<p>     -mqpub = ssl://pepe@host.domain.dom:8883/base_topic
-<p>     -mqpub = ws://host.domain.dom:80/base_topic
-<p>     -mqpub = wss://pepe:p2ssw0d@host.domain.dom:443/base_topic
+<p>&nbsp&nbsp -mqpub <url>
+<p>&nbsp&nbsp   Specify the MQTT broker URL and the root of a topic (basetopic) where to post the status every time an event occurs. The url format is
+<p>&nbsp&nbsp   protocol://[user[:password]@]host.domain.tld:port/base_topic
+<p>&nbsp&nbsp   Options for protocol: tcp, ssl, ws, wss
+<p>&nbsp&nbsp   Examples:
+<p>&nbsp&nbsp&nbsp&nbsp     -mqpub = tcp://host.domain.dom:1883/base_topic
+<p>&nbsp&nbsp&nbsp&nbsp     -mqpub = ssl://pepe@host.domain.dom:8883/base_topic
+<p>&nbsp&nbsp&nbsp&nbsp     -mqpub = ws://host.domain.dom:80/base_topic
+<p>&nbsp&nbsp&nbsp&nbsp     -mqpub = wss://pepe:p2ssw0d@host.domain.dom:443/base_topic
   
-<p>  -mqpub2 <url>
-<p>  -mqpub3 <url>
-<p>    Two additional brokers to which the program sends events
+<p>&nbsp&nbsp  -mqpub2 <url>
+<p>&nbsp&nbsp  -mqpub3 <url>
+<p>&nbsp&nbsp&nbsp&nbsp    Two additional brokers to which the program sends events
   
 The messages are published in 'clean session' with qos 0 and with 'retained flag' so that on each new connection the subscriber receives a message with the current status.
 
