@@ -11,6 +11,8 @@ It allows transporting the MQTT protocol over TCP or over Websockets, including 
 
 Oriented to run on single-board computers (SBC), being written in Golang, it can run on Linux or even, with the necessary modifications, on Windows.
 Along with the program, a UDEV rules file is included to ensure the order and correct identification of the controller cards according to the USB port where they are plugged in.
+
+More info: https://junavarg.github.io/dragonrise/
 <h1>Instalation</h1>
 <h2>Install binary in rpi</h2>
 Download and execute the install script
