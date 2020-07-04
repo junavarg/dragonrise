@@ -23,7 +23,8 @@ More info: https://junavarg.github.io/dragonrise/
 <li>  Download a UDEV rule file with name 31-dragonriseRPi.rules, copy it to /etc/udev/rules.d/ and reload the rules with udevadm command.</li>
 <p> NOTE: If a USB HUB is used, it will be necesary change accordingly the rules.
 <h2>Install binary in Linux intel x64/amd64</h2>
-<p> 1) Download the binary-executable wget https://raw.githubusercontent.com/junavarg/dragonrise/master/bin/linux-amd64/dragonrise
+<p> 1) Download the binary-executable 
+  <p><i>wget https://raw.githubusercontent.com/junavarg/dragonrise/master/bin/linux-amd64/dragonrise</i>
 <p> 2) Copy it in /usr/local/bin, and change permissions to 777
 <p> 3) Create directory for state files in /var/lib/dragonrise, with owner root and change permissions to 777
 <p> 4) Create a UDEV rule file (for example 31-dragonrise.rules) in /etc/udev/rules.d/ and reload the rules with udevadm command.
