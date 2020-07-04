@@ -15,8 +15,8 @@ Along with the program, a UDEV rules file is included to ensure the order and co
 More info: https://junavarg.github.io/dragonrise/
 <h1>Instalation</h1>
 <h2>Install binary in rpi</h2>
-Download and execute the install script
-<p>$ wget -O - https://raw.githubusercontent.com/junavarg/dragonrise/master/bin/rpi/install.sh | sudo bash
+<p>Download and execute the install script
+<p><i>$ wget -O - https://raw.githubusercontent.com/junavarg/dragonrise/master/bin/rpi/install.sh | sudo bash</i>
 <p>This script: 
 <li>  Download de executable, copy it in /usr/local/bin, and change permissions to 777</li>
 <li>  Create directory for state files in /var/lib/dragonrise, with owner root and change permissions to 777</li>
