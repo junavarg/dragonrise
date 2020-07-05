@@ -1,0 +1,9 @@
+[Unit]
+Description=dragonrise systemd service.
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/bin/dragonrise_service.sh
+
+[Install]
+WantedBy=multi-user.target
