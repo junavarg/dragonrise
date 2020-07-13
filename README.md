@@ -20,8 +20,10 @@ More info: https://junavarg.github.io/dragonrise/
 <p>This script: 
 <li>  Download de executable, copy it in /usr/local/bin, and change permissions to 777</li>
 <li>  Create directory for state files in /var/lib/dragonrise, with owner root and change permissions to 777</li>
-<li>  Download a UDEV rule file with name 31-dragonriseRPi.rules, copy it to /etc/udev/rules.d/ and reload the rules with udevadm command.</li>
-<p> NOTE: If a USB HUB is used, it will be necesary change accordingly the rules.
+<li>  Download a UDEV rule file with name 31-dragonriseRPi.rules, copy it to /etc/udev/rules.d/ and reload the rules with udevadm command.
+  <p> NOTE: If a USB HUB is used, it will be necesary change accordingly the rules.</li>
+<li>  Start de service and configure in systemd for autostart</li>  
+<li>  Download uninstall-dragonrise.sh script</li> 
 <h2>Install binary in Linux intel x64/amd64</h2>
 <p> 1) Download the binary-executable 
   <p><i>wget https://raw.githubusercontent.com/junavarg/dragonrise/master/bin/linux-amd64/dragonrise</i>
