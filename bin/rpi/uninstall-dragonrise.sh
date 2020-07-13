@@ -7,7 +7,8 @@ sudo systemctl stop dragonrise.service
 sudo systemctl disable dragonrise.service
 
 #Se elimina el fichero de definición del servicio y previamente el enlace 
-sudo rm /etc/systemd/system/dragonrise.service
+# siguiente linea retirada ya que systemctl disable ya elimina el enlace
+# sudo rm /etc/systemd/system/dragonrise.service         
 sudo rm  /lib/systemd/system/dragonrise.service
 
 #Se elimina el script del servicio
