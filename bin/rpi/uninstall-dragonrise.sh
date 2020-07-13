@@ -24,7 +24,8 @@ sudo rm  /etc/udev/rules.d/31-dragonriseRPi.rules
 sudo udevadm control --reload-rules
 
 
-
+# se elimina ficehro de desintalaciónV
+sudo rm  /usr/local/bin/uninstall-dragonrise.sh
 
 
 
