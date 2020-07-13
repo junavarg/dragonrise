@@ -3,7 +3,7 @@ Description=dragonrise systemd service.
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /usr/bin/dragonrise_service.sh
+ExecStart=/bin/bash /usr/local/sbin/dragonrise_service.sh
 
 [Install]
 WantedBy=multi-user.target
